@@ -9,6 +9,7 @@ import Settlement from './pages/Settlement';
 import Settings from './pages/Settings';
 import { Icon } from './components/Icon';
 import { ToastHost } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 dayjs.locale('ko');
 
@@ -50,12 +51,14 @@ export default function App() {
       </header>
       <main className="screen" key={route.tab}>
         <div className="page">
+        <ErrorBoundary resetKey={route.tab + (route.arg ?? '')}>
         {route.tab === 'today' && <Today go={go} />}
         {route.tab === 'scan' && <Scan go={go} />}
         {route.tab === 'members' && <Members go={go} memberId={route.arg} />}
         {route.tab === 'payments' && <Payments go={go} />}
         {route.tab === 'settle' && <Settlement />}
         {route.tab === 'settings' && <Settings />}
+        </ErrorBoundary>
         </div>
       </main>
       <nav className="tabbar" aria-label="하단 메뉴">
