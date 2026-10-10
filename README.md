@@ -1,32 +1,13 @@
-# React + TypeScript + Vite
+# studiopass
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+댄스 스튜디오용 출결·수강권·정산 관리 프로토타입. 폰과 PC 브라우저에서 같이 쓴다.
 
-Currently, two official plugins are available:
+- 회원별 QR 발급, 카메라로 찍으면 출석 + 회차 차감
+- 키오스크 결제 내역 엑셀 업로드 → 휴대폰 번호로 회원 자동 배정 → 수강권 생성
+- 강사별 정산(비율제 / 타임제), 전문반 자유수강 기록, 엑셀 내보내기
+- 지금은 브라우저 안에만 저장(데모). 가정 목록은 `docs/ASSUMPTIONS.md`
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
 ```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+npm install
+npm run dev
+```
