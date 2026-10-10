@@ -34,6 +34,8 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     if (navigator.vibrate) navigator.vibrate(r.ok ? 40 : [60, 40, 60]);
   };
 
+  const [cams, setCams] = useState<{ id: string; label: string }[]>([]);
+  const [camIdx, setCamIdx] = useState(0);
   useEffect(() => {
     if (result) return; // paused while spotlight shows
     let stopped = false;
@@ -41,13 +43,23 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     if (!el) return;
     const inst = new Html5Qrcode('reader', { verbose: false });
     scanner.current = inst;
-    inst.start({ facingMode: 'environment' }, { fps: 8, qrbox: (w, h) => { const m = Math.min(w, h) * 0.62; return { width: m, height: m }; } },
-      (text) => { const id = parseQr(text); if (id) handle(id); else { busy.current = true; setResult({ ok: false, reason: '이 스튜디오의 QR 이 아니에요' }); } },
-      () => {})
-      .catch((e) => { if (!stopped) setCamErr(String(e?.message ?? e)); });
+    (async () => {
+      // 카메라 목록을 먼저 받는다(권한 요청 겸). 후면 카메라가 있으면 facingMode, 없으면(노트북) 첫 카메라 id 로.
+      let list = cams;
+      if (list.length === 0) {
+        list = await Html5Qrcode.getCameras(); setCams(list);
+      }
+      if (stopped) return;
+      if (list.length === 0) throw new Error('NoCamera');
+      const hasBack = list.some((c) => /back|rear|environment|후면/i.test(c.label));
+      const target = hasBack && camIdx === 0 ? { facingMode: 'environment' as const } : list[camIdx % list.length].id;
+      await inst.start(target, { fps: 8, qrbox: (w, h) => { const m = Math.min(w, h) * 0.62; return { width: m, height: m }; } },
+        (text) => { const id = parseQr(text); if (id) handle(id); else { busy.current = true; setResult({ ok: false, reason: '이 스튜디오의 QR 이 아니에요' }); } },
+        () => {});
+    })().catch((e) => { if (!stopped) setCamErr(String(e?.message ?? e)); });
     return () => { stopped = true; inst.stop().catch(() => {}).finally(() => { try { inst.clear(); } catch { /* noop */ } }); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, courseId]);
+  }, [result, courseId, camIdx]);
 
   const found = q.trim() ? s.members.filter((m) => m.name.includes(q.trim()) || m.phone.includes(q.replace(/\D/g, '')) || m.memberNo.includes(q.trim())).slice(0, 6) : [];
   const course = s.courses.find((c) => c.id === courseId);
@@ -69,11 +81,12 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
 
       <div className="scan-wrap">
         {camErr ? (
-          <div className="empty" style={{ padding: 60 }}><b>카메라를 열 수 없어요</b>{camErr.includes('Permission') || camErr.includes('NotAllowed') ? '브라우저 설정에서 카메라를 허용해 주세요.' : 'HTTPS 주소에서 열었는지 확인해 주세요.'}<br />아래에서 이름으로 찾아 출석할 수 있어요.</div>
+          <div className="empty" style={{ padding: 60 }}><b>카메라를 열 수 없어요</b>{/Permission|NotAllowed|denied/i.test(camErr) ? '브라우저 주소창의 카메라 권한을 허용하고 다시 열어 주세요.' : /NoCamera|NotFound/i.test(camErr) ? '이 기기에 카메라가 없어요.' : /NotReadable|in use/i.test(camErr) ? '다른 앱이 카메라를 쓰고 있어요. 닫고 다시 시도해 주세요.' : 'HTTPS 주소에서 열었는지 확인해 주세요.'}<br />아래에서 이름으로 찾아 출석할 수 있어요.<div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => { setCamErr(null); setCams([]); }}>다시 시도</button></div></div>
         ) : (<>
           <div id="reader" />
           <div className="scan-frame"><div /></div>
           <div className="scan-hint">회원 QR 을 네모 안에 맞춰 주세요</div>
+          {cams.length > 1 && <button className="btn sm" style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,.6)' }} onClick={() => setCamIdx((i) => i + 1)}>카메라 전환</button>}
         </>)}
       </div>
 

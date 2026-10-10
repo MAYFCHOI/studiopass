@@ -15,6 +15,7 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+html { color-scheme: dark; }
 body {
   background: var(--floor);
   color: var(--ink);
@@ -180,7 +181,8 @@ textarea.input { height: auto; padding: 12px 14px; }
   .rail button[aria-current="page"] { background: var(--surface); color: var(--ink); }
   .rail button[aria-current="page"] svg { color: var(--amber); }
   .tabbar { display: none; }
-  .screen { padding: 8px 48px 48px; max-width: 980px; }
+  .screen { padding: 8px 48px 48px; }
+  .page { max-width: 900px; }
   .strip { margin: 0; padding: 4px 0 6px; }
   .scan-wrap { margin: 16px 0 0; max-width: 440px; border-radius: 20px; max-height: none; }
   .stats { max-width: 620px; }

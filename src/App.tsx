@@ -49,12 +49,14 @@ export default function App() {
         </nav>
       </header>
       <main className="screen" key={route.tab}>
+        <div className="page">
         {route.tab === 'today' && <Today go={go} />}
         {route.tab === 'scan' && <Scan go={go} />}
         {route.tab === 'members' && <Members go={go} memberId={route.arg} />}
         {route.tab === 'payments' && <Payments go={go} />}
         {route.tab === 'settle' && <Settlement />}
         {route.tab === 'settings' && <Settings />}
+        </div>
       </main>
       <nav className="tabbar" aria-label="하단 메뉴">
         {TABS.map((t) => (
