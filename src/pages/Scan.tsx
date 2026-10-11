@@ -43,7 +43,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     if (!el) return;
     const inst = new Html5Qrcode('reader', { verbose: false });
     scanner.current = inst;
-    (async () => {
+    const startP = (async () => {
       // 카메라 목록을 먼저 받는다(권한 요청 겸). 후면 카메라가 있으면 facingMode, 없으면(노트북) 첫 카메라 id 로.
       let list = cams;
       if (list.length === 0) {
@@ -57,7 +57,15 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
         (text) => { const id = parseQr(text); if (id) handle(id); else { busy.current = true; setResult({ ok: false, reason: '이 스튜디오의 QR 이 아니에요' }); } },
         () => {});
     })().catch((e) => { if (!stopped) setCamErr(String(e?.message ?? e)); });
-    return () => { stopped = true; inst.stop().catch(() => {}).finally(() => { try { inst.clear(); } catch { /* noop */ } }); };
+    // 정리: stop() 은 카메라가 아직 켜지는 중이거나 실패한 상태면 동기 예외를 던진다.
+    // 언마운트 중 예외가 나면 React 가 앱 전체를 내리므로(검은 화면), start 가 끝난 뒤 상태를 보고 안전하게 끈다.
+    const shutdown = () => {
+      try {
+        const clear = () => { try { inst.clear(); } catch { /* noop */ } };
+        if (inst.isScanning) inst.stop().catch(() => {}).finally(clear); else clear();
+      } catch { /* noop */ }
+    };
+    return () => { stopped = true; startP.then(shutdown, shutdown); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, courseId, camIdx]);
 

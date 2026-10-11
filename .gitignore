@@ -6,3 +6,4 @@ __pycache__/
 *.csv
 !docs/samples/*.csv
 .DS_Store
+dist/
