@@ -5,23 +5,23 @@ import { uid, qrSig } from './util';
 // Deterministic-ish demo data for a dance studio. Dates are relative to today so the demo never looks stale.
 export function seed(): State {
   const instructors: Instructor[] = [
-    { id: 'ins_yuna', name: '유나', crew: 'Choreo', settlementType: 'RATIO', ratioInstructor: 50, perSessionFee: 0 },
-    { id: 'ins_jay', name: '제이', crew: 'Hiphop', settlementType: 'RATIO', ratioInstructor: 40, perSessionFee: 0 },
-    { id: 'ins_hodu', name: '호두', crew: 'Waacking', settlementType: 'PER_SESSION', ratioInstructor: 0, perSessionFee: 60000 },
+    { id: 'ins_yuna', name: '강사A', crew: '힙합', settlementType: 'RATIO', ratioInstructor: 50, perSessionFee: 0 },
+    { id: 'ins_jay', name: '강사B', crew: '하우스', settlementType: 'RATIO', ratioInstructor: 40, perSessionFee: 0 },
+    { id: 'ins_hodu', name: '강사C', crew: '하우스', settlementType: 'PER_SESSION', ratioInstructor: 0, perSessionFee: 60000 },
   ];
   const courses: Course[] = [
-    { id: 'c_choreo', name: '코레오 베이직', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [1, 3], startTime: '19:00', durationMin: 80 },
-    { id: 'c_hiphop', name: '힙합 베이직', instructorId: 'ins_jay', kind: 'GENERAL', weekday: [2, 4], startTime: '20:30', durationMin: 80 },
-    { id: 'c_waack', name: '왁킹 오픈', instructorId: 'ins_hodu', kind: 'GENERAL', weekday: [6], startTime: '15:00', durationMin: 90 },
-    { id: 'c_kpop', name: 'K-POP 커버', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [5], startTime: '19:00', durationMin: 80 },
-    { id: 'c_pro', name: '전문반', instructorId: 'ins_yuna', kind: 'PRO', weekday: [1, 2, 3, 4, 5], startTime: '17:00', durationMin: 120 },
+    { id: 'c_choreo', name: '힙합 기초', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [1, 3], startTime: '19:00', durationMin: 80 },
+    { id: 'c_hiphop', name: '하우스 기초', instructorId: 'ins_jay', kind: 'GENERAL', weekday: [2, 4], startTime: '20:30', durationMin: 80 },
+    { id: 'c_waack', name: '하우스 오픈', instructorId: 'ins_hodu', kind: 'GENERAL', weekday: [6], startTime: '15:00', durationMin: 90 },
+    { id: 'c_kpop', name: '힙합 중급', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [5], startTime: '19:00', durationMin: 80 },
+    { id: 'c_pro', name: '힙합 전문반', instructorId: 'ins_yuna', kind: 'PRO', weekday: [1, 2, 3, 4, 5], startTime: '17:00', durationMin: 120 },
   ];
   const products: Product[] = [
-    { id: 'p_choreo8', name: '코레오 베이직 8회', courseId: 'c_choreo', passKind: 'COUNT', count: 8, periodDays: 60, price: 160000 },
-    { id: 'p_hiphop8', name: '힙합 베이직 8회', courseId: 'c_hiphop', passKind: 'COUNT', count: 8, periodDays: 60, price: 160000 },
-    { id: 'p_waack4', name: '왁킹 오픈 4회', courseId: 'c_waack', passKind: 'COUNT', count: 4, periodDays: 45, price: 100000 },
-    { id: 'p_kpop4', name: 'K-POP 커버 4회', courseId: 'c_kpop', passKind: 'COUNT', count: 4, periodDays: 45, price: 80000 },
-    { id: 'p_pro', name: '전문반 월정액', passKind: 'PERIOD', count: 10, periodDays: 30, price: 350000 },
+    { id: 'p_choreo8', name: '힙합 기초 8회', courseId: 'c_choreo', passKind: 'COUNT', count: 8, periodDays: 60, price: 160000 },
+    { id: 'p_hiphop8', name: '하우스 기초 8회', courseId: 'c_hiphop', passKind: 'COUNT', count: 8, periodDays: 60, price: 160000 },
+    { id: 'p_waack4', name: '하우스 오픈 4회', courseId: 'c_waack', passKind: 'COUNT', count: 4, periodDays: 45, price: 100000 },
+    { id: 'p_kpop4', name: '힙합 중급 4회', courseId: 'c_kpop', passKind: 'COUNT', count: 4, periodDays: 45, price: 80000 },
+    { id: 'p_pro', name: '힙합 전문반 월정액', passKind: 'PERIOD', count: 10, periodDays: 30, price: 350000 },
   ];
   const names = ['김서연', '이도윤', '박지우', '최하은', '정민준', '강지민', '조예린', '윤시우', '장수아', '임건우', '한유진', '오채원'];
   const members: Member[] = names.map((n, i) => ({
@@ -77,11 +77,11 @@ export function seed(): State {
   // 미배정 결제 2건: 휴대폰이 회원과 안 맞음
   payments.push({
     id: uid(), source: 'KIOSK', externalId: '30099123', paidAt: dayjs().subtract(1, 'day').hour(19).toISOString(),
-    amount: 160000, payerName: '신예은', payerPhone: '01055550123', productName: '힙합 베이직 8회', status: 'APPROVED',
+    amount: 160000, payerName: '신예은', payerPhone: '01055550123', productName: '하우스 기초 8회', status: 'APPROVED',
   });
   payments.push({
     id: uid(), source: 'KIOSK', externalId: '30099124', paidAt: dayjs().subtract(2, 'hour').toISOString(),
-    amount: 80000, payerName: '최하은', payerPhone: '', productName: 'K-POP 커버 4회', status: 'APPROVED',
+    amount: 80000, payerName: '최하은', payerPhone: '', productName: '힙합 중급 4회', status: 'APPROVED',
   });
   return { studioName: 'studiopass', members, instructors, courses, products, payments, passes, attendances };
 }

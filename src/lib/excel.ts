@@ -66,10 +66,10 @@ export function downloadXlsx(name: string, sheets: { name: string; rows: Record<
 export function sampleCsv(): string {
   const d = dayjs();
   return ['결제일시,결제자명,휴대폰번호,상품명,결제금액,승인번호,상태',
-    `${d.subtract(2, 'hour').format('YYYY-MM-DD HH:mm:ss')},김서연,010-2000-3100,코레오 베이직 8회,160000,30123456,승인`,
-    `${d.subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')},이도윤,010-2137-3311,힙합 베이직 8회,160000,30123457,승인`,
-    `${d.subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')},박새로이,010-9999-0001,왁킹 오픈 4회,100000,30123458,승인`,
-    `${d.subtract(3, 'day').format('YYYY-MM-DD HH:mm:ss')},정민준,010-2548-3944,전문반 월정액,350000,30123459,승인`,
-    `${d.subtract(3, 'day').format('YYYY-MM-DD HH:mm:ss')},정민준,010-2548-3944,전문반 월정액,-350000,30123459,취소`,
+    `${d.subtract(2, 'hour').format('YYYY-MM-DD HH:mm:ss')},김서연,010-2000-3100,힙합 기초 8회,160000,30123456,승인`,
+    `${d.subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')},이도윤,010-2137-3311,하우스 기초 8회,160000,30123457,승인`,
+    `${d.subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')},박새로이,010-9999-0001,하우스 오픈 4회,100000,30123458,승인`,
+    `${d.subtract(3, 'day').format('YYYY-MM-DD HH:mm:ss')},정민준,010-2548-3944,힙합 전문반 월정액,350000,30123459,승인`,
+    `${d.subtract(3, 'day').format('YYYY-MM-DD HH:mm:ss')},정민준,010-2548-3944,힙합 전문반 월정액,-350000,30123459,취소`,
   ].join('\n');
 }

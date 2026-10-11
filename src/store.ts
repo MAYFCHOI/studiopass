@@ -128,6 +128,6 @@ export const useStore = create<State & Actions>()(
         });
       },
     }),
-    { name: 'studiopass-v1', version: 1 },
+    { name: 'studiopass-v1', version: 2 },
   ),
 );
