@@ -7,12 +7,12 @@ export function seed(): State {
   const instructors: Instructor[] = [
     { id: 'ins_yuna', name: '강사A', crew: '힙합', settlementType: 'RATIO', ratioInstructor: 50, perSessionFee: 0 },
     { id: 'ins_jay', name: '강사B', crew: '하우스', settlementType: 'RATIO', ratioInstructor: 40, perSessionFee: 0 },
-    { id: 'ins_hodu', name: '강사C', crew: '하우스', settlementType: 'PER_SESSION', ratioInstructor: 0, perSessionFee: 60000 },
+    { id: 'ins_hodu', name: '강사C', crew: '하우스', settlementType: 'PER_SESSION', ratioInstructor: 0, perSessionFee: 25000 },
   ];
   const courses: Course[] = [
     { id: 'c_choreo', name: '힙합 기초', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [1, 3], startTime: '19:00', durationMin: 80 },
     { id: 'c_hiphop', name: '하우스 기초', instructorId: 'ins_jay', kind: 'GENERAL', weekday: [2, 4], startTime: '20:30', durationMin: 80 },
-    { id: 'c_waack', name: '하우스 오픈', instructorId: 'ins_hodu', kind: 'GENERAL', weekday: [6], startTime: '15:00', durationMin: 90 },
+    { id: 'c_waack', name: '하우스 오픈', instructorId: 'ins_hodu', kind: 'GENERAL', weekday: [0, 6], startTime: '15:00', durationMin: 90 },
     { id: 'c_kpop', name: '힙합 중급', instructorId: 'ins_yuna', kind: 'GENERAL', weekday: [5], startTime: '19:00', durationMin: 80 },
     { id: 'c_pro', name: '힙합 전문반', instructorId: 'ins_yuna', kind: 'PRO', weekday: [1, 2, 3, 4, 5], startTime: '17:00', durationMin: 120 },
   ];

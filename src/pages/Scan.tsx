@@ -17,7 +17,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     return Math.abs(m - nowMin) < Math.abs(bm - nowMin) ? c.id : best;
   }, undefined);
   const [courseId, setCourseId] = useState<string | undefined>(nearest);
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(todays.length === 0);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [camErr, setCamErr] = useState<string | null>(null);
   const [q, setQ] = useState('');

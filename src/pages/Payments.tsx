@@ -32,7 +32,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
     if (!sheet) return;
     const r = s.importPayments(toPayments(sheet.rows, sheet.map));
     setSheet(null);
-    toast(`${r.added}건 추가 (중복 ${r.dup}) · 자동 배정 ${r.matched}건`);
+    toast(`${r.added}건 추가 (중복 ${r.dup}) · 회원 자동 연결 ${r.matched}건`);
   };
   const queue = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const all = [...s.payments].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
@@ -47,19 +47,19 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         <button className="btn" onClick={() => setManual(true)}>직접 입력</button>
       </div>
       <input ref={file} type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) open(f); e.target.value = ''; }} />
-      <p className="sub">키오스크 관리 웹에서 내려받은 결제 내역을 그대로 올리면 돼요. 휴대폰 번호가 같은 회원에게 자동으로 배정되고 수강권이 생겨요. <button className="chip" onClick={() => { const b = new Blob(['﻿' + sampleCsv()], { type: 'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kiosk-sample.csv'; a.click(); }}>샘플 파일</button></p>
+      <p className="sub">키오스크 관리 웹에서 내려받은 결제 내역을 그대로 올리면 돼요. 휴대폰 번호가 같은 회원에게 자동으로 연결되고 수강권이 생겨요. 번호가 안 맞는 결제만 아래에서 직접 골라주면 돼요. <button className="chip" onClick={() => { const b = new Blob(['﻿' + sampleCsv()], { type: 'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kiosk-sample.csv'; a.click(); }}>샘플 파일</button></p>
 
       <div className="seg" style={{ marginTop: 6 }}>
-        <button aria-pressed={tab === 'queue'} onClick={() => setTab('queue')}>배정 대기 {queue.length ? `· ${queue.length}` : ''}</button>
+        <button aria-pressed={tab === 'queue'} onClick={() => setTab('queue')}>확인 필요 {queue.length ? `· ${queue.length}` : ''}</button>
         <button aria-pressed={tab === 'all'} onClick={() => setTab('all')}>전체</button>
       </div>
 
-      {tab === 'queue' && (queue.length === 0 ? <div className="empty"><b>배정 대기가 없어요</b>모든 결제가 회원에게 연결됐어요</div> : (
+      {tab === 'queue' && (queue.length === 0 ? <div className="empty"><b>확인할 결제가 없어요</b>모든 결제가 회원에게 연결됐어요</div> : (
         <div className="list">
           {queue.map((p) => (
             <button className="row" key={p.id} onClick={() => setAssign(p)}>
               <div className="main"><div className="t">{p.payerName || '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && !s.members.some((m) => m.phone === p.payerPhone) && ' · 일치 회원 없음'}</div></div>
-              <div className="right"><b className="num">{won(p.amount)}</b><span className="chip amber">배정</span></div>
+              <div className="right"><b className="num">{won(p.amount)}</b><span className="chip amber">회원 연결</span></div>
             </button>
           ))}
         </div>
@@ -68,8 +68,8 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         <div className="list">
           {all.slice(0, 100).map((p) => (
             <div className="row" key={p.id} style={p.status === 'CANCELLED' ? { opacity: .45 } : undefined}>
-              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '미배정'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : '수동'}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}</div></div>
-              <div className="right"><b className="num">{won(p.amount)}</b>{p.memberId ? <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button> : p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>배정</button>}</div>
+              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : '수동'}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}</div></div>
+              <div className="right"><b className="num">{won(p.amount)}</b>{p.memberId ? <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button> : p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>회원 연결</button>}</div>
             </div>
           ))}
         </div>
@@ -94,7 +94,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
           <input className="input" autoFocus placeholder="회원 이름 검색" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="list">
             {s.members.filter((m) => !q.trim() ? (assign.payerName ? m.name.includes(assign.payerName) || m.phone.slice(-4) === assign.payerPhone?.slice(-4) : true) : m.name.includes(q.trim())).slice(0, 8).map((m) => (
-              <button className="row" key={m.id} onClick={() => { s.assignPayment(assign.id, m.id); setAssign(null); setQ(''); toast(`${m.name}에게 배정, 수강권이 생겼어요`); }}>
+              <button className="row" key={m.id} onClick={() => { s.assignPayment(assign.id, m.id); setAssign(null); setQ(''); toast(`${m.name}에게 연결, 수강권이 생겼어요`); }}>
                 <div className="avatar">{m.name.slice(-2)}</div><div className="main"><div className="t">{m.name}</div><div className="d">{fmtPhone(m.phone)} · {m.memberNo}</div></div>
               </button>
             ))}

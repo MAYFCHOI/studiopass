@@ -19,9 +19,9 @@ export default function Settlement() {
   const exportXlsx = () => {
     const att = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM') === month);
     downloadXlsx(`정산_${month}.xlsx`, [
-      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor}%` : `타임제 ${won(l.instructor.perSessionFee)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원귀속: l.academyPay, 전문반출석: l.proTickets })) },
+      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor}%` : `타임제 ${won(l.instructor.perSessionFee)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
       { name: '출석 상세', rows: att.map((a) => { const p = s.passes.find((x) => x.id === a.passId); return { 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === a.memberId)?.name, 수업: s.courses.find((c) => c.id === a.courseId)?.name, 강사: s.instructors.find((i) => i.id === a.instructorId)?.name, 수강권: p?.kind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: p && p.kind === 'COUNT' ? Math.round(p.price / p.totalCount) : 0 }; }) },
-      { name: '결제', rows: s.payments.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month).map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === p.memberId)?.name ?? '미배정', 결제자: p.payerName, 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId })) },
+      { name: '결제', rows: s.payments.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month).map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === p.memberId)?.name ?? '연결 안 됨', 결제자: p.payerName, 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId })) },
     ]);
     toast('엑셀을 저장했어요');
   };
@@ -35,8 +35,8 @@ export default function Settlement() {
         <button onClick={() => setMonth(label.add(1, 'month').format('YYYY-MM'))} aria-label="다음 달">›</button>
       </div>
       <div className="stats" style={{ marginTop: 0 }}>
-        <div className="stat"><b className="num" style={{ fontSize: 22 }}>{won(revenue)}</b><span>출석 기준 매출</span></div>
-        <div className="stat"><b className="num" style={{ fontSize: 22 }}>{won(revenue - lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay, 0))}</b><span>학원 귀속</span></div>
+        <div className="stat"><b className="num" style={{ fontSize: 22 }}>{won(revenue)}</b><span>매출 (출석 기준)</span></div>
+        <div className="stat"><b className="num" style={{ fontSize: 22 }}>{won(revenue - lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay, 0))}</b><span>학원 몫</span></div>
         <div className="stat"><b className="num">{lines.reduce((n, l) => n + l.sessions, 0)}</b><span>수업 횟수</span></div>
       </div>
       <div className="btn-row">
@@ -50,9 +50,9 @@ export default function Settlement() {
           <dl>
             <dt>수업 횟수</dt><dd>{l.sessions}타임</dd>
             <dt>출석 인원</dt><dd>{l.heads}명</dd>
-            {l.type === 'RATIO' && <><dt>출석 기준 매출</dt><dd>{won(l.revenue)}</dd><dt>학원 귀속</dt><dd>{won(l.academyPay)}</dd></>}
+            {l.type === 'RATIO' && <><dt>매출 (출석 기준)</dt><dd>{won(l.revenue)}</dd><dt>학원 몫</dt><dd>{won(l.academyPay)}</dd></>}
             {l.type === 'PER_SESSION' && <><dt>수강권 매출(학원 전액)</dt><dd>{won(l.revenue)}</dd></>}
-            {l.proTickets > 0 && <><dt>전문반 자유수강</dt><dd>{l.proTickets}회 (기록만)</dd></>}
+            {l.proTickets > 0 && <><dt>전문반 자유수강</dt><dd>{l.proTickets}회 · 정산 없음</dd></>}
           </dl>
         </div>
       ))}

@@ -42,6 +42,7 @@ export default function App() {
       <header className="topbar">
         <button className="brand" onClick={() => go('today')}>studio<i>pass</i></button>
         <div className="date">{dayjs().format('M월 D일 dddd')}</div>
+        <button className="gear" aria-label="설정" onClick={() => go('settings')} aria-current={route.tab === 'settings' ? 'page' : undefined}><Icon name="settings" /></button>
         <nav className="rail" aria-label="주 메뉴">
           {TABS.map((t) => (
             <button key={t.id} onClick={() => go(t.id)} aria-current={route.tab === t.id ? 'page' : undefined}><Icon name={t.icon} />{t.label}</button>
