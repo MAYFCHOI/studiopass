@@ -25,6 +25,10 @@ interface Actions {
   activePasses: (memberId: string) => Pass[];
 }
 
+/** 수강권이 이 수업에 쓰일 수 있는지. 전문반 수업은 월정액만, 정규 수업은 공통 회차권·그 수업 전용권·월정액. */
+export const passFits = (p: Pass, c: Course) =>
+  p.kind === 'PERIOD' ? true : c.kind === 'PRO' ? false : p.courseId ? p.courseId === c.id : true;
+
 export const useStore = create<State & Actions>()(
   persist(
     (set, get) => ({
@@ -103,13 +107,14 @@ export const useStore = create<State & Actions>()(
         const t = today();
         const dupe = s.attendances.find((a) => !a.cancelledAt && a.memberId === memberId && a.courseId === courseId && dayjs(a.attendedAt).format('YYYY-MM-DD') === t);
         if (dupe) return { ok: false, reason: '오늘 이 수업은 이미 출석했어요', member };
-        const candidates = get().activePasses(memberId).filter((p) => (p.kind === 'PERIOD' ? true : p.courseId === courseId));
-        // 가정: 수업 전용 회차권 먼저, 그다음 전문반 자유수강권
-        candidates.sort((a, b) => (a.kind === b.kind ? a.validTo.localeCompare(b.validTo) : a.kind === 'COUNT' ? -1 : 1));
+        const candidates = get().activePasses(memberId).filter((p) => passFits(p, course));
+        // 가정: 이 수업 전용 회차권 → 정규 공통 회차권 → 전문반 자유수강권, 같은 순위는 만료 임박 순
+        const rank = (p: Pass) => (p.kind === 'PERIOD' ? 2 : p.courseId ? 0 : 1);
+        candidates.sort((a, b) => rank(a) - rank(b) || a.validTo.localeCompare(b.validTo));
         const pass = candidates[0];
         if (!pass) {
-          const expired = s.passes.find((p) => p.memberId === memberId && (p.courseId === courseId || p.kind === 'PERIOD'));
-          return { ok: false, reason: expired ? (expired.remaining <= 0 ? '남은 횟수가 없어요. 결제가 필요해요' : '수강권 기간이 지났어요') : '이 수업의 수강권이 없어요', member };
+          const expired = s.passes.filter((p) => p.memberId === memberId && passFits(p, course)).sort((a, b) => b.validTo.localeCompare(a.validTo))[0];
+          return { ok: false, reason: expired ? (expired.remaining <= 0 ? '남은 횟수가 없어요. 결제가 필요해요' : '수강권 기간이 지났어요') : course.kind === 'PRO' ? '전문반 수업이에요. 전문반 수강권이 필요해요' : '이 수업에 쓸 수강권이 없어요', member };
         }
         const attendance: Attendance = { id: uid(), memberId, passId: pass.id, courseId, instructorId: course.instructorId, attendedAt: new Date().toISOString() };
         set({
@@ -128,6 +133,6 @@ export const useStore = create<State & Actions>()(
         });
       },
     }),
-    { name: 'studiopass-v1', version: 3 },
+    { name: 'studiopass-v1', version: 4 },
   ),
 );

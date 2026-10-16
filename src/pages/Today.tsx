@@ -3,6 +3,9 @@ import dayjs from 'dayjs';
 import { useStore } from '../store';
 import type { Tab } from '../App';
 import { WEEKDAYS } from '../lib/util';
+import { ClassCard } from '../components/ClassCard';
+import { passName, courseTitle } from '../lib/labels';
+import type { Course } from '../types';
 
 export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const s = useStore();
@@ -37,28 +40,24 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
         <button className="btn primary wide" onClick={() => go('scan')}>QR 출석 체크</button>
       </div>
 
-      <h2>오늘 시간표</h2>
-      {classes.length === 0 ? <div className="empty"><b>오늘은 수업이 없어요</b><button className="chip" onClick={() => go('settings')}>시간표 바꾸기</button></div> : (
-        <div className="list">
-          {classes.map((c) => {
-            const n = todayAtt.filter((a) => a.courseId === c.id).length;
-            const ins = s.instructors.find((i) => i.id === c.instructorId);
-            return (
-              <div className="row" key={c.id}>
-                <div className="main"><div className="t">{c.name}</div><div className="d">{c.startTime} · {ins?.name} {c.kind === 'PRO' && <span className="chip pro">전문반</span>}</div></div>
-                <div className="right"><b className="num">{n}</b>출석</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {classes.length > 0 ? (<>
+        <h2>오늘 수업</h2>
+        <ClassGrid list={classes} counts={(c) => todayAtt.filter((a) => a.courseId === c.id).length} />
+      </>) : (() => {
+        const next = [1, 2, 3, 4, 5, 6, 7].map((d) => (wd + d) % 7).find((d) => s.courses.some((c) => c.weekday.includes(d)));
+        const nl = next === undefined ? [] : s.courses.filter((c) => c.weekday.includes(next)).sort((a, b) => a.startTime.localeCompare(b.startTime));
+        return (<>
+          <h2>오늘은 수업이 없어요</h2>
+          {next !== undefined && <><p className="sub">다음 수업 · {next === (wd + 1) % 7 ? '내일' : ''} {WEEKDAYS[next]}요일</p><ClassGrid list={nl} /></>}
+        </>);
+      })()}
 
       {expiring.length > 0 && (<>
         <h2>이번 주 만료</h2>
         <div className="list">
           {expiring.map((p) => (
             <button className="row" key={p.id} onClick={() => go('members', p.memberId)}>
-              <div className="main"><div className="t">{name(p.memberId)}</div><div className="d">{p.courseId ? course(p.courseId)?.name : '전문반'} · {dayjs(p.validTo).format('M/D')}까지</div></div>
+              <div className="main"><div className="t">{name(p.memberId)}</div><div className="d">{passName(s, p)} · {dayjs(p.validTo).format('M/D')}까지</div></div>
               <div className="right"><b className="num">{p.remaining}</b>남음</div>
             </button>
           ))}
@@ -71,7 +70,7 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
           {[...todayAtt].reverse().slice(0, 12).map((a) => (
             <button className="row" key={a.id} onClick={() => go('members', a.memberId)}>
               <div className="avatar">{name(a.memberId).slice(-2)}</div>
-              <div className="main"><div className="t">{name(a.memberId)}</div><div className="d">{course(a.courseId)?.name}</div></div>
+              <div className="main"><div className="t">{name(a.memberId)}</div><div className="d">{(() => { const c = course(a.courseId); return c ? courseTitle(s, c) : ''; })()}</div></div>
               <div className="right num">{dayjs(a.attendedAt).format('HH:mm')}</div>
             </button>
           ))}
@@ -79,4 +78,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
       )}
     </>
   );
+}
+
+function ClassGrid({ list, counts }: { list: Course[]; counts?: (c: Course) => number }) {
+  return <div className="cc-grid">{list.map((c) => <ClassCard key={c.id} c={c} count={counts?.(c)} dim={c.hall} range />)}</div>;
 }

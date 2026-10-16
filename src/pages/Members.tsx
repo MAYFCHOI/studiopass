@@ -6,6 +6,8 @@ import type { Tab } from '../App';
 import { fmtPhone, qrPayload, won } from '../lib/util';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
+import { passName, courseTitle } from '../lib/labels';
+import logoMark from '../assets/logo-mark.png';
 import { toast } from '../components/Toast';
 
 function QR({ text }: { text: string }) {
@@ -26,7 +28,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
     const passes = s.passes.filter((p) => p.memberId === m.id).sort((a, b) => b.validFrom.localeCompare(a.validFrom));
     const att = s.attendances.filter((a) => a.memberId === m.id).sort((a, b) => b.attendedAt.localeCompare(a.attendedAt));
     const pays = s.payments.filter((p) => p.memberId === m.id).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
-    const course = (id?: string) => (id ? s.courses.find((c) => c.id === id)?.name : '전문반 자유수강');
+    const course = (id: string) => { const c = s.courses.find((x) => x.id === id); return c ? courseTitle(s, c) : '삭제된 수업'; };
     const t = dayjs().format('YYYY-MM-DD');
     const share = async () => {
       const canvas = document.querySelector<HTMLCanvasElement>('.pass canvas');
@@ -42,7 +44,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       <>
         <button className="btn sm ghost" style={{ marginTop: 14 }} onClick={() => go('members')}><Icon name="back" size={16} />회원 목록</button>
         <div className="pass">
-          <div className="band"><span>{s.studioName}</span><span className="no">{m.memberNo}</span></div>
+          <div className="band"><img className="band-mark" src={logoMark} alt="" /><span>THE DEPTH<small>DANCE STUDIO</small></span><span className="no">{m.memberNo}</span></div>
           <div className="body">
             <div><div className="name">{m.name}</div><div className="phone">{fmtPhone(m.phone)}</div><div className="phone">{dayjs(m.createdAt).format('YYYY.M.D')} 등록</div></div>
             <QR text={qrPayload(m.id)} />
@@ -61,7 +63,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
               const expired = p.validTo < t; const done = p.remaining <= 0;
               return (
                 <div className="row" key={p.id}>
-                  <div className="main"><div className="t">{course(p.courseId)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} · {won(p.price)}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
+                  <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} · {won(p.price)}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
                   <div className="right"><b className="num">{p.remaining}</b>/ {p.totalCount}</div>
                 </div>
               );
@@ -74,7 +76,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           <div className="list">
             {att.slice(0, 30).map((a) => (
               <div className="row" key={a.id} style={a.cancelledAt ? { opacity: .4 } : undefined}>
-                <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.instructors.find((i) => i.id === a.instructorId)?.name}{a.cancelledAt && ' · 취소됨'}</div></div>
+                <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.courses.find((c) => c.id === a.courseId)?.hall}{s.passes.find((p) => p.id === a.passId)?.kind === 'PERIOD' && ' · 월정액'}{a.cancelledAt && ' · 취소됨'}</div></div>
                 {!a.cancelledAt && <button className="btn sm ghost" onClick={() => { if (confirm('이 출석을 취소하고 횟수를 되돌릴까요?')) { s.cancelAttendance(a.id); toast('출석을 취소했어요'); } }}>취소</button>}
               </div>
             ))}

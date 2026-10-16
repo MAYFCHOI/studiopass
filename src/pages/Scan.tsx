@@ -4,6 +4,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useStore, type ScanResult } from '../store';
 import type { Tab } from '../App';
 import { parseQr } from '../lib/util';
+import { ClassCard } from '../components/ClassCard';
+import { courseTitle, courseMeta, passName } from '../lib/labels';
 
 export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
   const s = useStore();
@@ -71,20 +73,15 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
 
   const found = q.trim() ? s.members.filter((m) => m.name.includes(q.trim()) || m.phone.includes(q.replace(/\D/g, '')) || m.memberNo.includes(q.trim())).slice(0, 6) : [];
   const course = s.courses.find((c) => c.id === courseId);
-  const ins = (id?: string) => s.instructors.find((i) => i.id === id)?.name;
 
   return (
     <>
-      <h1><small>{course ? `${course.name} · ${ins(course.instructorId)}` : '수업을 선택하세요'}</small>출석 체크</h1>
+      <h1><small>{course ? `${courseTitle(s, course)} · ${courseMeta(course)}` : '수업을 선택하세요'}</small>출석 체크</h1>
       <div className="strip">
         {list.map((c) => (
-          <button key={c.id} className="slot" aria-pressed={c.id === courseId} onClick={() => setCourseId(c.id)}>
-            <div className="time">{c.startTime}{!c.weekday.includes(wd) && ' · 오늘 수업 아님'}</div>
-            <div className="n">{c.name}</div>
-            <div className="i">{ins(c.instructorId)}</div>
-          </button>
+          <ClassCard key={c.id} c={c} dim={c.weekday.includes(wd) ? c.hall : '일월화수목금토'[c.weekday[0]]} pressed={c.id === courseId} onClick={() => setCourseId(c.id)} />
         ))}
-        <button className="slot" onClick={() => setShowAll((v) => !v)} style={{ minWidth: 110 }}><div className="time">&nbsp;</div><div className="n">{showAll ? '오늘만' : '전체 수업'}</div><div className="i">&nbsp;</div></button>
+        <button className="cc more" onClick={() => setShowAll((v) => !v)}>{showAll ? '오늘 수업만' : '전체 수업 보기'}</button>
       </div>
 
       <div className="scan-wrap">
@@ -104,7 +101,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
         {found.map((m) => (
           <button className="row" key={m.id} onClick={() => { setQ(''); handle(m.id); }}>
             <div className="avatar">{m.name.slice(-2)}</div>
-            <div className="main"><div className="t">{m.name}</div><div className="d">{m.memberNo} · {s.activePasses(m.id).map((p) => (p.kind === 'PERIOD' ? `전문반 ${p.remaining}` : `${s.courses.find((c) => c.id === p.courseId)?.name} ${p.remaining}`)).join(', ') || '수강권 없음'}</div></div>
+            <div className="main"><div className="t">{m.name}</div><div className="d">{m.memberNo} · {s.activePasses(m.id).map((p) => `${passName(s, p)} ${p.remaining}`).join(', ') || '수강권 없음'}</div></div>
             <span className="chip">출석</span>
           </button>
         ))}
@@ -112,10 +109,10 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
 
       {result && (
         <div className={'spot' + (result.ok ? '' : ' bad')} role="alertdialog" onClick={() => { setResult(null); busy.current = false; }}>
-          <div className="kicker">{result.ok ? `${dayjs(result.attendance.attendedAt).format('HH:mm')} · ${result.course.name}` : '출석 안 됨'}</div>
+          <div className="kicker">{result.ok ? `${dayjs(result.attendance.attendedAt).format('HH:mm')} · ${courseTitle(s, result.course)}` : '출석 안 됨'}</div>
           <p className="who">{result.ok ? result.member.name : result.member?.name ?? '확인 필요'}</p>
           <p className="what">{result.ok ? '출석 완료' : result.reason}</p>
-          <p className="left">{result.ok ? (<>{result.pass.kind === 'PERIOD' ? '전문반 자유수강 ' : ''}남은 횟수 <b className="num">{result.pass.remaining}</b> / {result.pass.totalCount} · {dayjs(result.pass.validTo).format('M/D')}까지</>) : (result.member ? <button className="chip" onClick={(e) => { e.stopPropagation(); go('members', result.member!.id); }}>회원 정보 보기</button> : ' ')}</p>
+          <p className="left">{result.ok ? (<>{passName(s, result.pass)} · 남은 횟수 <b className="num">{result.pass.remaining}</b> / {result.pass.totalCount} · {dayjs(result.pass.validTo).format('M/D')}까지</>) : (result.member ? <button className="chip" onClick={(e) => { e.stopPropagation(); go('members', result.member!.id); }}>회원 정보 보기</button> : ' ')}</p>
           <button className="ok" onClick={() => { setResult(null); busy.current = false; }}>다음 사람</button>
         </div>
       )}
