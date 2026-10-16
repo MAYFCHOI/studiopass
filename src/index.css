@@ -333,6 +333,28 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .tt-wk { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
 .tt-wk .cc-who { font-size: 16px; font-stretch: 112%; }
 
+/* 새 회원 버튼: 폰은 탭바 위 오른쪽, PC 는 화면 오른쪽 아래 */
+.fab { position: fixed; right: max(20px, calc(50% - 240px)); bottom: calc(var(--tabbar) + 16px + env(safe-area-inset-bottom)); border-radius: 999px; height: 52px; padding-right: 20px; z-index: 5; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+/* 오늘: 폰은 위아래로, 넓은 PC 는 왼쪽 상황판 + 오른쪽 목록 */
+.dash { display: grid; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) {
+  .page { max-width: 1200px; margin: 0 auto; }
+  .stats { max-width: none; }
+  .panel { background: var(--surface); border-radius: 10px; padding: 4px 20px 8px; margin-top: 18px; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+  .panel h2 { margin-top: 18px; }
+}
+@media (min-width: 900px) {
+  .fab { right: 40px; bottom: 32px; }
+  .settle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .settle-grid .settle { margin-bottom: 0; }
+}
+@media (min-width: 1200px) {
+  .list.cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
+  .list.cols .row:last-child { border-bottom: 1px solid var(--line); }
+  .dash { grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 40px; align-items: start; }
+  .dash-side { position: sticky; top: 8px; padding-top: 18px; }
+  .dash-side .panel:first-child { margin-top: 0; }
+}
 @media (min-width: 900px) {
   .topbar { border-right: 2px solid var(--ink); }
   .brand img { height: 34px; }

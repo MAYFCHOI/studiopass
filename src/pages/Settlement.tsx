@@ -43,6 +43,7 @@ export default function Settlement() {
         <div className="seg"><button aria-pressed={sort === 'pay'} onClick={() => setSort('pay')}>금액순</button><button aria-pressed={sort === 'name'} onClick={() => setSort('name')}>이름순</button></div>
         <button className="btn" style={{ marginLeft: 'auto' }} onClick={exportXlsx}><Icon name="download" size={18} />엑셀</button>
       </div>
+      <div className="settle-grid">
       {lines.map((l) => (
         <div className="settle" key={l.instructor.id}>
           <div className="head"><b>{l.instructor.name}</b><span className="chip">{l.type === 'RATIO' ? `비율제 ${100 - l.instructor.ratioInstructor}:${l.instructor.ratioInstructor}` : `타임제 ${won(l.instructor.perSessionFee)}`}</span></div>
@@ -56,6 +57,7 @@ export default function Settlement() {
           </dl>
         </div>
       ))}
+      </div>
       <div className="note">정산 계산 기준
         <ul>
           <li>비율제: 출석 1회 가치 = 수강권 가격 ÷ 총 회차. 이달 출석분만 더해 강사 비율로 나눠요.</li>

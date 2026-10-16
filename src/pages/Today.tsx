@@ -30,6 +30,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
           <button onClick={closeWelcome} aria-label="닫기">✕</button>
         </div>
       )}
+      <div className="dash">
+      <section className="dash-main">
       <h1><small>{WEEKDAYS[wd]}요일, 수업 {classes.length}개</small>오늘 출석<br />{todayAtt.length}명</h1>
       <div className="stats">
         <div className="stat"><b className="num">{s.members.length}</b><span>회원</span></div>
@@ -52,7 +54,9 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
         </>);
       })()}
 
-      {expiring.length > 0 && (<>
+      </section>
+      <aside className="dash-side">
+      {expiring.length > 0 && (<div className="panel">
         <h2>이번 주 만료</h2>
         <div className="list">
           {expiring.map((p) => (
@@ -62,8 +66,9 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
             </button>
           ))}
         </div>
-      </>)}
+      </div>)}
 
+      <div className="panel">
       <h2>최근 출석</h2>
       {todayAtt.length === 0 ? <p className="sub">아직 출석이 없어요. QR 을 찍으면 여기에 쌓여요.</p> : (
         <div className="list">
@@ -76,6 +81,9 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
           ))}
         </div>
       )}
+      </div>
+      </aside>
+      </div>
     </>
   );
 }

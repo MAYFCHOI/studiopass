@@ -110,7 +110,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
     <>
       <h1><small>{s.members.length}명</small>회원</h1>
       <div className="search"><input className="input" placeholder="이름, 전화번호, 회원번호" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      <div className="list">
+      <div className="list cols">
         {list.map((m) => {
           const ap = s.activePasses(m.id); const left = ap.reduce((n, p) => n + p.remaining, 0);
           const last = s.attendances.filter((a) => a.memberId === m.id && !a.cancelledAt).sort((a, b) => b.attendedAt.localeCompare(a.attendedAt))[0];
@@ -125,7 +125,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         {list.length === 0 && <div className="empty"><b>검색 결과가 없어요</b>아래에서 새 회원을 등록할 수 있어요</div>}
       </div>
       <div style={{ height: 70 }} />
-      <button className="btn primary" style={{ position: 'fixed', right: 'max(20px, calc(50% - 240px))', bottom: 'calc(var(--tabbar) + 16px + env(safe-area-inset-bottom))', borderRadius: 999, height: 52, paddingRight: 20 }} onClick={() => { setForm({ name: '', phone: '', memo: '' }); setAdding(true); }}><Icon name="plus" />새 회원</button>
+      <button className="btn primary fab" onClick={() => { setForm({ name: '', phone: '', memo: '' }); setAdding(true); }}><Icon name="plus" />새 회원</button>
       {adding && (
         <Sheet onClose={() => setAdding(false)} title="새 회원 등록">
           <MemberForm form={form} setForm={setForm} onSubmit={() => { const m = s.addMember(form); setAdding(false); toast(`${m.name} 등록, QR 이 발급됐어요`); go('members', m.id); }} label="등록하고 QR 만들기" />
