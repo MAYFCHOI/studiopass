@@ -388,3 +388,33 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
   .list.cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
   .list.cols .row:last-child { border-bottom: 1px solid var(--line); }
 }
+
+/* 정산: 흰 판 대신 검은 선 장부 */
+.note { background: transparent; box-shadow: none; border-top: 2px solid var(--ink); border-radius: 0; padding: 14px 0 0; margin-top: 28px; color: var(--ink); font-weight: 700; }
+.note ul { font-weight: 400; color: var(--ink-2); }
+.settle-page .month { margin: 18px 0 0; justify-content: flex-start; gap: 14px; }
+.settle-page .month b { font-size: 18px; font-family: var(--font); font-stretch: normal; font-weight: 800; letter-spacing: -0.02em; }
+.settle-page .month button { width: 36px; height: 36px; background: transparent; border: 2px solid var(--ink); border-radius: 6px; font-weight: 800; }
+.settle-page .hero { margin: 14px 0 16px; }
+.settle-total { margin: 2px 0 0; font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: clamp(40px, 11vw, 96px); line-height: .95; }
+.settle-page .fig b { font-size: 22px; }
+.ledger-tools { display: flex; align-items: center; justify-content: space-between; margin: 28px 0 8px; }
+.ledger { border-top: 2px solid var(--ink); }
+.lg-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.lg-head { display: none; }
+.lg-name { font-weight: 800; font-size: 17px; grid-column: 1; }
+.lg-name small { display: block; font-weight: 500; font-size: 12px; color: var(--mute); }
+.lg-term { grid-column: 1; grid-row: 2; font-size: 13px; color: var(--mute); }
+.lg-pay { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: 20px; }
+.lg-row > [data-k] { display: none; }
+.lg-idle { margin: 10px 0 0; }
+@media (min-width: 900px) {
+  .settle-page .fig b { font-size: 30px; }
+  .lg-row { grid-template-columns: 1.4fr 1.2fr .7fr .7fr 1fr 1fr 1.1fr; gap: 12px; padding: 14px 0; }
+  .lg-row > * { grid-column: auto !important; grid-row: auto !important; }
+  .lg-row > [data-k] { display: block; text-align: right; }
+  .lg-head { display: grid; padding: 10px 0; border-bottom: 2px solid var(--ink); font-size: 13px; font-weight: 700; }
+  .lg-head span:nth-child(n+3) { text-align: right; }
+  .lg-term { font-size: 14px; }
+  .lg-pay { text-align: right; font-size: 20px; align-self: baseline; }
+}
