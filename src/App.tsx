@@ -42,7 +42,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <button className="brand" onClick={() => go('today')} aria-label="THE DEPTH DANCE STUDIO 홈"><img src={logoMark} alt="" /><span>THE DEPTH<small>DANCE STUDIO</small></span></button>
-        <div className="date">{dayjs().format('M월 D일 dddd')}</div>
+        <div className="date">{route.tab !== 'today' && dayjs().format('M월 D일 dddd')}</div>
         <button className="gear" aria-label="설정" onClick={() => go('settings')} aria-current={route.tab === 'settings' ? 'page' : undefined}><Icon name="settings" /></button>
         <nav className="rail" aria-label="주 메뉴">
           {TABS.map((t) => (
