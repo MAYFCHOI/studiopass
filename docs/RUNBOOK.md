@@ -86,7 +86,7 @@ scripts/deploy.sh
 4. 지금 태그를 `/srv/studiopass/PREV_TAG` 에 적고 새 태그로 `docker compose up -d`.
 5. 컨테이너 안에서 `/api/healthz` 를 최대 60초 확인합니다. `compose up` 이 실패하거나 헬스체크가 실패하면 자동으로 이전 버전으로 되돌립니다. 이미지뿐 아니라 compose, Caddyfile, 스크립트, crontab 도 배포 전 것(`app.pre/` 에 잠시 보관)으로 되돌립니다. ntfy 는 "studiopass 배포 실패, 이전 버전으로 되돌림", 되돌리기까지 실패하면 "studiopass 배포 실패, 되돌리기도 실패" 입니다.
 6. 성공하면 `CURRENT_TAG` 를 갱신하고, 배포 전 `app/` 을 `app.prev/` 로 옮기고, 오래된 소스·이미지를 정리합니다(최근 3개 + CURRENT/PREV 는 남김).
-7. Caddyfile 을 적용합니다. `compose up` 은 Caddyfile 만 바뀐 경우 caddy 를 다시 만들지 않기 때문입니다. 컨테이너 안 Caddyfile 이 새 파일과 같으면 `caddy reload`, 다르면(파일 하나짜리 bind mount 라 예전 파일을 붙잡고 있는 경우) `docker compose restart caddy`(1초 안팎 끊김)를 합니다. 실패해도 배포는 성공으로 두고 `WARNING: caddy ...` 만 남깁니다. 그때는 `ssh studiopass 'cd /srv/studiopass/app && sudo docker compose restart caddy'` 로 직접 적용합니다. 롤백(자동·수동) 뒤에도 같은 단계를 거칩니다.
+7. Caddyfile 을 적용합니다. `compose up` 은 Caddyfile 만 바뀐 경우 caddy 를 다시 만들지 않기 때문입니다. 컨테이너 안 Caddyfile 이 새 파일과 같으면 `caddy reload`, 다르면(파일 하나짜리 bind mount 라 예전 파일을 붙잡고 있는 경우) `docker compose restart caddy`(1초 안팎 끊김)를 합니다. 적용 전에 새 Caddyfile 을 임시 caddy 컨테이너로 `caddy validate` 합니다. 검증이 실패하면 적용하지 않고(돌던 caddy 는 예전 설정 그대로) `WARNING: new Caddyfile failed 'caddy validate'` 를 남기고 ntfy "studiopass 설정 확인 필요" 를 보냅니다. 이때 서버 디스크의 `app/Caddyfile` 은 이미 새 파일이라, 고치지 않은 채 서버가 재부팅되면 caddy 가 못 뜹니다. 바로 고쳐서 다시 배포하거나 `--rollback` 합니다. 적용이 실패해도 배포는 성공으로 두고 `WARNING: caddy ...` 만 남깁니다. 그때는 `ssh studiopass 'cd /srv/studiopass/app && sudo docker compose restart caddy'` 로 직접 적용합니다. 롤백(자동·수동) 뒤에도 같은 단계를 거칩니다.
 
 빌드나 배포 전 백업이 실패해도 `app/` 은 배포 전 상태로 돌아갑니다.
 
@@ -129,8 +129,64 @@ ssh studiopass 'sudo /srv/studiopass/app/backup.sh daily && tail -n 1 /var/log/s
 | studiopass 응답 없음 | `https://<도메인>/api/healthz` 가 5분 간격으로 2번 연속 실패 |
 | studiopass 응답 회복 | 위 알림 뒤 처음 성공 |
 | studiopass 배포 실패(, 이전 버전으로 되돌림) | deploy.sh 의 헬스체크 게이트 실패 |
+| studiopass 설정 확인 필요 | 배포한 Caddyfile 이 `caddy validate` 를 못 넘겨 적용하지 않음(위 "평소 배포" 7번) |
 
 토픽은 서버 `/etc/studiopass/alerts.env` 에만 있습니다. 본문에 IP·도메인·회원 정보를 넣지 않습니다. 헬스체크 상태 파일은 `/var/lib/studiopass/health` 입니다.
+
+## 기기를 잃어버렸을 때
+
+인포 태블릿이나 원장 휴대폰을 잃어버렸거나, 그만둔 직원이 로그인된 기기를 갖고 있을 때 씁니다. 로그인은 30일 동안 안 쓰면 끝나고, 계속 써도 로그인한 지 90일이 지나면 끝납니다. 그 전에 끊으려면 아래 둘 중 하나를 합니다. 둘 다 그 계정의 모든 기기 로그인을 바로 지웁니다.
+
+| 상황 | 명령 | 결과 |
+|---|---|---|
+| 인포 기기 분실, 인포 계정을 계속 쓸 것 | `reset-password <인포 loginId>` | 비밀번호가 바뀌고 모든 기기가 로그아웃. 남은 기기에서 새 비밀번호로 다시 로그인 |
+| 그만둔 직원 계정, 당분간 아무도 안 씀 | `deactivate <loginId>` | 로그인 막힘 + 모든 기기 로그아웃. 다시 쓰려면 `activate <loginId>` |
+| 원장 기기 분실 | `reset-password <원장 loginId>` | 원장 비밀번호가 바뀌고 모든 기기 로그아웃 |
+
+비밀번호를 바꾸는 명령(비밀번호는 화면에 안 보이게 읽어 표준입력으로 넘깁니다):
+
+```bash
+ssh -t studiopass 'read -rs -p "password: " P; echo; cd /srv/studiopass/app && printf "%s\n" "$P" | sudo docker compose exec -T api node server/dist/server/src/cli.js reset-password <loginId>'
+```
+
+계정 막기·풀기(비밀번호 필요 없음):
+
+```bash
+ssh studiopass 'cd /srv/studiopass/app && sudo docker compose exec -T api node server/dist/server/src/cli.js deactivate <loginId>'
+ssh studiopass 'cd /srv/studiopass/app && sudo docker compose exec -T api node server/dist/server/src/cli.js activate <loginId>'
+```
+
+출력이 `password reset for <loginId>; sessions cleared` 또는 `<loginId> deactivated; sessions cleared` 면 끝입니다. 세 명령 모두 접속기록(`audit_log`)에 `staff.password_reset` / `staff.update` 로 남습니다. 잃어버린 기기에서 그 사이 누가 무엇을 봤는지는 아래 "접속기록 보기" 로 확인합니다.
+
+## 접속기록 보기
+
+로그인 성공(`auth.login`), 로그인 실패(`auth.login_fail`, 입력한 아이디와 IP. 비밀번호는 남기지 않음), 로그아웃(`auth.logout`), 정산 화면 조회(`settlement.view`), 정산 엑셀 받기(`settlement.export`), 회원 정보 삭제(`member.erase`), 결제자 정보 삭제(`payment.erase_payer`) 와 기존 변경 기록(회원 등록·수정, 결제, 출석 취소 등)이 `audit_log` 에 쌓입니다. 시각은 UTC 로 저장됩니다.
+
+**보관: 지우지 않습니다.** 자동 삭제 작업이 없고, 개인정보 안전성 확보조치 기준의 접속기록 보관(최소 1년)을 이 테이블로 채웁니다. DB 를 복원하면 백업 시점 이후의 기록은 사라지니 복원은 마지막 수단으로 둡니다(위 "롤백과 복원"). 한 달에 한 번 지난달 기록을 훑어 모르는 IP 의 로그인, 반복된 로그인 실패, 예상하지 못한 정산 엑셀 받기가 없는지 봅니다.
+
+원장 계정으로 로그인한 브라우저에서 주소창에 바로 엽니다(JSON 으로 보입니다. 날짜는 한국 날짜, 양 끝 포함, 최신순 100건):
+
+```
+https://<도메인>/api/audit?from=2026-10-01&to=2026-10-31
+```
+
+`limit=500` 까지 늘릴 수 있고, 응답 끝의 `next` 값이 있으면 `&before=<next 값>` 을 붙여 다음 쪽을 엽니다. 인포 계정은 403 입니다.
+
+서버에서 표로 보기(한국 시각으로 바꿔 보여 줌):
+
+```bash
+ssh studiopass "cd /srv/studiopass/app && sudo docker compose exec -T api sqlite3 -header -column /data/studiopass.db \"select datetime(a.at,'+9 hours') kst, coalesce(s.login_id,'-') who, a.action, a.ip, a.detail_json from audit_log a left join staff s on s.id=a.staff_id where a.at >= '2026-09-30T15:00:00Z' and a.at < '2026-10-31T15:00:00Z' order by a.at\""
+```
+
+(`2026-09-30T15:00:00Z` 가 한국 시각 10월 1일 0시입니다.)
+
+## 개인정보 파기
+
+회원이 탈퇴하거나 삭제를 요청하면 원장 계정으로 회원 상세 > 개인정보 > "회원 정보 삭제" 를 누르고 확인합니다. 이름은 "삭제된 회원" 으로 바뀌고 전화번호·메모, 회원 페이지 링크, 그 회원 결제의 결제자 이름·전화가 지워집니다. 출석 기록, 수강권, 결제 금액은 정산과 법정 보관(결제 기록 5년)을 위해 남으므로 정산 숫자는 바뀌지 않습니다. 지운 회원은 출석 체크가 안 되고 예전 링크는 열리지 않습니다. 되돌릴 수 없습니다.
+
+회원과 연결되지 않은 키오스크 결제(비회원 결제)의 이름·전화는 결제 > 확인 필요 > 그 결제 > "결제자 정보 삭제" 로 지웁니다.
+
+지운 정보는 일일 백업(30일 보관)과 배포 전 백업에 그 기간 동안 남아 있다가 순환되며 사라집니다. 처리방침 초안은 `docs/PRIVACY.md` 입니다.
 
 ## 자주 쓰는 명령
 
