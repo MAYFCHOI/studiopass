@@ -84,7 +84,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, courseId, camIdx]);
 
-  const found = q.trim() ? s.members.filter((m) => m.name.includes(q.trim()) || m.phone.includes(q.replace(/\D/g, '')) || m.memberNo.includes(q.trim())).slice(0, 6) : [];
+  const found = q.trim() ? s.members.filter((m) => !m.erased && (m.name.includes(q.trim()) || m.phone.includes(q.replace(/\D/g, '')) || m.memberNo.includes(q.trim()))).slice(0, 6) : [];
   const course = s.courses.find((c) => c.id === courseId);
 
   return (

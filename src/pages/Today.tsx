@@ -46,7 +46,7 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
       <div className="figures">
         <div className="fig"><b className="num">{todayAtt.length}</b><span>오늘 출석</span></div>
         <div className="fig"><b className="num">{monthAtt.length}</b><span>이달 출석</span></div>
-        <div className="fig"><b className="num">{s.members.length}</b><span>회원</span></div>
+        <div className="fig"><b className="num">{s.members.filter((m) => !m.erased).length}</b><span>회원</span></div>
         <button className="btn primary fig-cta" onClick={() => go('scan')}>QR 출석 체크</button>
       </div>
 

@@ -19,6 +19,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const [tab, setTab] = useState<'queue' | 'all'>('queue');
   const [sheet, setSheet] = useState<{ headers: string[]; rows: Row[]; map: Mapping; name: string } | null>(null);
   const [assign, setAssign] = useState<Payment | null>(null);
+  const [payerErase, setPayerErase] = useState(false);
   const [manual, setManual] = useState(false);
   const [q, setQ] = useState('');
   const file = useRef<HTMLInputElement>(null);
@@ -104,7 +105,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
       )}
 
       {assign && (
-        <Sheet onClose={() => { setAssign(null); setQ(''); }} title="누구의 결제인가요?">
+        <Sheet onClose={() => { setAssign(null); setQ(''); setPayerErase(false); }} title="누구의 결제인가요?">
           <p className="sub">{assign.payerName || '이름 없음'} · {assign.productName}{maybeWon(assign.amount, ' · ')}{assign.payerPhone && ` · ${fmtPhone(assign.payerPhone)}`}</p>
           {noPass(assign) && (
             <div className="notice" role="note">
@@ -117,12 +118,21 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
           )}
           <input className="input" autoFocus placeholder="회원 이름 검색" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="list">
-            {s.members.filter((m) => !q.trim() ? (assign.payerName ? m.name.includes(assign.payerName) || m.phone.slice(-4) === assign.payerPhone?.slice(-4) : true) : m.name.includes(q.trim())).slice(0, 8).map((m) => (
+            {s.members.filter((m) => !m.erased).filter((m) => !q.trim() ? (assign.payerName ? m.name.includes(assign.payerName) || m.phone.slice(-4) === assign.payerPhone?.slice(-4) : true) : m.name.includes(q.trim())).slice(0, 8).map((m) => (
               <button className="row" key={m.id} onClick={() => { s.assignPayment(assign.id, m.id).then(() => { setAssign(null); setQ(''); linked(assign.id, m.name); }, () => {}); }}>
                 <div className="avatar">{m.name.slice(-2)}</div><div className="main"><div className="t">{m.name}</div><div className="d">{fmtPhone(m.phone)} · {m.memberNo}</div></div>
               </button>
             ))}
           </div>
+          {owner && !assign.memberId && (assign.payerName || assign.payerPhone) && (!payerErase
+            ? <button className="btn sm ghost" style={{ marginTop: 10 }} onClick={() => setPayerErase(true)}>결제자 정보 삭제</button>
+            : <div className="notice" role="alertdialog" aria-label="결제자 정보 삭제 확인">
+                결제자 이름·전화번호를 지울까요? 되돌릴 수 없어요. 결제 금액·상품·일시는 정산을 위해 남아요.
+                <div className="btn-row">
+                  <button className="btn wide" onClick={() => setPayerErase(false)}>그만두기</button>
+                  <button className="btn primary wide" onClick={() => { s.erasePayer(assign.id).then(() => { setPayerErase(false); setAssign(null); toast('결제자 정보를 삭제했어요'); }, () => {}); }}>삭제하기</button>
+                </div>
+              </div>)}
           <div className="btn-row">
             <button className="btn wide" onClick={() => { setAssign(null); go('members'); }}>새 회원으로 등록</button>
             <button className="btn ghost" onClick={() => {
@@ -143,14 +153,15 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
 
 function ManualPay({ onClose }: { onClose: () => void }) {
   const s = useStore();
-  const [memberId, setMemberId] = useState(s.members[0]?.id ?? '');
+  const live = s.members.filter((m) => !m.erased);
+  const [memberId, setMemberId] = useState(live[0]?.id ?? '');
   const [productId, setProductId] = useState(s.products[0]?.id ?? '');
   const prod = s.products.find((p) => p.id === productId);
   const [amount, setAmount] = useState(String(prod?.price ?? ''));
   const total = Number(amount) || prod?.price || 0; // DESK 는 상품 가격을 모르니 금액을 직접 넣는다
   return (
     <Sheet onClose={onClose} title="직접 입력 (현금·이체)">
-      <div className="field"><label>회원</label><select className="input" value={memberId} onChange={(e) => setMemberId(e.target.value)}>{s.members.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.memberNo}</option>)}</select></div>
+      <div className="field"><label>회원</label><select className="input" value={memberId} onChange={(e) => setMemberId(e.target.value)}>{live.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.memberNo}</option>)}</select></div>
       <div className="field"><label>상품</label><select className="input" value={productId} onChange={(e) => { setProductId(e.target.value); setAmount(String(s.products.find((p) => p.id === e.target.value)?.price ?? '')); }}>{s.products.map((p) => <option key={p.id} value={p.id}>{p.name}{maybeWon(p.price, ' · ')}</option>)}</select></div>
       <div className="field"><label>금액</label><input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
       <button className="btn primary wide" disabled={!memberId || !prod || !total} onClick={() => {

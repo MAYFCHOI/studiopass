@@ -62,7 +62,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       },
       login: async (loginId, password) => {
         try { await api('/auth/login', { method: 'POST', body: { loginId, password } }); } catch (e) {
-          if (e instanceof ApiError) return { ok: false, error: e.status === 429 ? 'LIMIT' : 'INVALID' };
+          if (e instanceof ApiError) return { ok: false, error: e.status === 429 ? (e.body?.error === 'BUSY' ? 'BUSY' : 'LIMIT') : 'INVALID' };
           set({ online: false });
           return { ok: false };
         }
@@ -76,6 +76,8 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       },
       addMember: (m) => post<Member & { assigned: number }>('/members', m),
       updateMember: (id, patch) => mutate(`/members/${id}`, { method: 'PATCH', body: { name: patch.name, phone: patch.phone, memo: patch.memo } }).then(() => {}),
+      eraseMember: (id) => post(`/members/${id}/erase`).then(() => {}),
+      erasePayer: (paymentId) => post(`/payments/${paymentId}/erase-payer`).then(() => {}),
       issueLink: async (memberId) => (await call<{ url: string }>(`/members/${memberId}/link`, { method: 'POST' })).url,
       recordMessage: async (memberId) => { await call(`/members/${memberId}/messages`, { method: 'POST' }); },
       sendAlimtalkLink: (memberId) => call<{ ok: boolean; error?: string }>(`/members/${memberId}/messages`, { method: 'POST', body: { channel: 'ALIMTALK' } }),

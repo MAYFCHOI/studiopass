@@ -23,6 +23,8 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', memo: '' });
   const [talkBusy, setTalkBusy] = useState(false);
+  const [erasing, setErasing] = useState(false);
+  const [eraseBusy, setEraseBusy] = useState(false);
 
   if (memberId) {
     const m = s.members.find((x) => x.id === memberId);
@@ -66,9 +68,17 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       else if (r?.error === 'NO_PHONE') toast('전화번호가 없어서 보낼 수 없어요');
       else toast('알림톡을 보내지 못했어요. 링크 문자로 보내 주세요');
     };
+    const erase = async () => {
+      if (eraseBusy) return;
+      setEraseBusy(true);
+      await s.eraseMember(m.id).then(() => { setErasing(false); toast('회원 정보를 삭제했어요'); }, () => {});
+      setEraseBusy(false);
+    };
+    const owner = s.me?.role === 'OWNER';
     return (
       <>
         <button className="btn sm ghost" style={{ marginTop: 14 }} onClick={() => go('members')}><Icon name="back" size={16} />회원 목록</button>
+        {m.erased && <div className="notice" role="note" style={{ marginTop: 12 }}>개인정보를 삭제한 회원이에요. 출석·결제 기록만 정산용으로 남아 있고, 이 회원으로는 출석할 수 없어요.</div>}
         <div className="pass">
           <div className="band"><img className="band-mark" src={logoMark} alt="" /><span>THE DEPTH<small>DANCE STUDIO</small></span><span className="no">{m.memberNo}</span></div>
           <div className="body">
@@ -77,13 +87,13 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           </div>
           <div className="perf"><span>{IS_DEMO ? '이 QR 을 카메라에 보여주면 출석돼요' : '회원 페이지의 QR 을 카메라에 보여주면 출석돼요'}</span><span>{s.activePasses(m.id).reduce((n, p) => n + p.remaining, 0)}회 남음</span></div>
         </div>
-        <div className="btn-row">
+        {!m.erased && <div className="btn-row">
           {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button>
             : s.alimtalkEnabled ? <button className="btn primary wide" disabled={talkBusy} onClick={() => { void sendTalk(); }}>{talkBusy ? '보내는 중…' : '알림톡으로 링크 보내기'}</button>
             : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
-        </div>
-        {!IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+        </div>}
+        {!m.erased && !IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
 
         <h2>수강권</h2>
         {passes.length === 0 ? <p className="sub">아직 수강권이 없어요. 결제가 들어오면 자동으로 생겨요.</p> : (
@@ -124,6 +134,24 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           </div>
         )}
 
+        {owner && !m.erased && (
+          <>
+            <h2>개인정보</h2>
+            {!erasing ? (
+              <button className="btn sm ghost" onClick={() => setErasing(true)}>회원 정보 삭제</button>
+            ) : (
+              <div className="notice" role="alertdialog" aria-label="회원 정보 삭제 확인">
+                <b>{m.name} 회원의 정보를 지울까요?</b>
+                <p style={{ margin: '6px 0 0' }}>이름·전화번호·메모, 회원 페이지 링크, 이 회원 결제의 결제자 이름·전화가 지워지고 되돌릴 수 없어요. 출석 기록과 수강권, 결제 금액은 정산을 위해 남으니 정산 숫자는 바뀌지 않아요. 지운 뒤에는 이 회원으로 출석할 수 없어요.</p>
+                <div className="btn-row">
+                  <button className="btn wide" disabled={eraseBusy} onClick={() => setErasing(false)}>그만두기</button>
+                  <button className="btn primary wide" disabled={eraseBusy} onClick={() => { void erase(); }}>{eraseBusy ? '지우는 중…' : '삭제하기'}</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
         {adding && (
           <Sheet onClose={() => setAdding(false)} title="회원 정보 수정">
             <MemberForm form={form} setForm={setForm} onSubmit={() => { s.updateMember(m.id, form).then(() => { setAdding(false); toast('저장했어요'); }, () => {}); }} label="저장" />
@@ -134,10 +162,11 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   }
 
   const qq = q.trim();
-  const list = s.members.filter((m) => !qq || m.name.includes(qq) || m.phone.includes(qq.replace(/\D/g, '') || '\u0000') || m.memberNo.includes(qq)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  const live = s.members.filter((m) => !m.erased);
+  const list = live.filter((m) => !qq || m.name.includes(qq) || m.phone.includes(qq.replace(/\D/g, '') || '\u0000') || m.memberNo.includes(qq)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   return (
     <>
-      <h1><small>{s.members.length}명</small>회원</h1>
+      <h1><small>{live.length}명</small>회원</h1>
       <div className="search"><input className="input" placeholder="이름, 전화번호, 회원번호" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="list cols">
         {list.map((m) => {
@@ -170,7 +199,7 @@ function MemberForm({ form, setForm, onSubmit, label }: { form: { name: string; 
     <form onSubmit={(e) => { e.preventDefault(); if (ok) onSubmit(); }}>
       <div className="field"><label>이름</label><input className="input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
       <div className="field"><label>휴대폰 번호 (키오스크 결제와 자동으로 맞춰요)</label><input className="input" inputMode="tel" placeholder="010-0000-0000" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-      <div className="field"><label>메모</label><input className="input" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} /></div>
+      <div className="field"><label>메모</label><input className="input" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} /><span className="hint">건강·종교 같은 민감한 정보는 적지 마세요</span></div>
       <button className="btn primary wide" type="submit" disabled={!ok}>{label}</button>
     </form>
   );

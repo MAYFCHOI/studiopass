@@ -13,6 +13,7 @@ export interface Member {
   createdAt: string; // ISO
   memo?: string;
   tier?: { name: string; level: number; count: number }; // 서버가 계산
+  erased?: boolean; // 개인정보 파기됨(이름 '삭제된 회원', 전화·메모 없음). 출석·결제 기록만 남는다
 }
 
 export interface Instructor {
@@ -138,10 +139,14 @@ export interface NewPayment { memberId: string; productName: string; amount: num
 
 export interface Actions {
   load(): Promise<void>;
-  login(loginId: string, password: string): Promise<{ ok: boolean; error?: 'INVALID' | 'LIMIT' }>;
+  login(loginId: string, password: string): Promise<{ ok: boolean; error?: 'INVALID' | 'LIMIT' | 'BUSY' }>;
   logout(): Promise<void>;
   addMember(m: { name: string; phone: string; memo?: string }): Promise<Member>;
   updateMember(id: string, patch: Partial<Member>): Promise<void>;
+  /** 원장 전용: 회원 개인정보 파기(이름·전화·메모·링크·결제자 정보). 출석·수강권·결제 금액은 남는다. 되돌릴 수 없다 */
+  eraseMember(id: string): Promise<void>;
+  /** 원장 전용: 회원과 연결되지 않은 결제의 결제자 이름·전화 파기 */
+  erasePayer(paymentId: string): Promise<void>;
   /** 회원 페이지 링크 발급(재발급하면 예전 링크는 막힌다). URL 을 돌려준다. */
   issueLink(memberId: string): Promise<string>;
   recordMessage(memberId: string): Promise<void>;

@@ -31,7 +31,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
         };
         const attendSync = (memberId: string, courseId: string): ScanResult => {
           const s = get();
-          const member = s.members.find((m) => m.id === memberId);
+          const member = s.members.find((m) => m.id === memberId && !m.erased);
           if (!member) return { ok: false, reason: 'UNKNOWN_MEMBER' };
           const who = { id: member.id, name: member.name };
           const course = s.courses.find((c) => c.id === courseId);
@@ -107,6 +107,13 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             return member;
           },
           updateMember: async (id, patch) => { set((s) => ({ members: s.members.map((m) => (m.id === id ? { ...m, ...patch, phone: patch.phone !== undefined ? normalizePhone(patch.phone) : m.phone } : m)) })); },
+          eraseMember: async (id) => {
+            set((s) => ({
+              members: s.members.map((m) => (m.id === id ? { ...m, name: '삭제된 회원', phone: '', memo: undefined, erased: true } : m)),
+              payments: s.payments.map((p) => (p.memberId === id ? { ...p, payerName: undefined, payerPhone: '' } : p)),
+            }));
+          },
+          erasePayer: async (paymentId) => { set((s) => ({ payments: s.payments.map((p) => (p.id === paymentId && !p.memberId ? { ...p, payerName: undefined, payerPhone: '' } : p)) })); },
           issueLink: async (memberId) => location.href.split('#')[0] + '#/members/' + memberId,
           recordMessage: async () => {},
           sendAlimtalkLink: async () => ({ ok: false, error: 'DEMO' }),
