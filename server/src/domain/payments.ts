@@ -20,17 +20,19 @@ function createPass(db: Db, paymentId: string, memberId: string, productName: st
     .run(id, memberId, prod.id, prod.course_id, prod.pass_kind, prod.count, prod.count, from, addDays(from, prod.period_days), paymentId, amount, nowIso());
   return id;
 }
-export function assignPayment(db: Db, paymentId: string, memberId: string, staffId: string | null) {
+/** onPass 는 수강권이 새로 생겼을 때 불린다(트랜잭션 안에서 불리므로 부작용은 호출 쪽이 미뤄야 한다). */
+export function assignPayment(db: Db, paymentId: string, memberId: string, staffId: string | null, onPass?: (memberId: string, passId: string, staffId: string | null) => void) {
   return db.transaction(() => {
     const p = db.prepare('select * from payments where id=?').get(paymentId) as any;
     if (!p || p.pass_id || p.status !== 'APPROVED') return { passId: null };
     const passId = createPass(db, p.id, memberId, p.product_name, p.paid_at, p.amount);
     db.prepare('update payments set member_id=?, pass_id=? where id=?').run(memberId, passId, p.id);
     audit(db, staffId, 'payment.assign', 'payment', p.id, { memberId, passId });
+    if (passId) onPass?.(memberId, passId, staffId);
     return { passId };
   })();
 }
-export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | null) {
+export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | null, onPass?: (memberId: string, passId: string, staffId: string | null) => void) {
   return db.transaction(() => {
     let added = 0, dup = 0, matched = 0;
     const seen = new Set<string>();
@@ -48,7 +50,7 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       added++;
       if ((r.status ?? 'APPROVED') !== 'APPROVED' || !phone) continue;
       const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[];
-      if (m.length === 1) { assignPayment(db, id, m[0].id, staffId); matched++; }
+      if (m.length === 1) { assignPayment(db, id, m[0].id, staffId, onPass); matched++; }
     }
     return { added, dup, matched };
   })();

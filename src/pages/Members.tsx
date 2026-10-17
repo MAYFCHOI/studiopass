@@ -22,6 +22,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', memo: '' });
+  const [talkBusy, setTalkBusy] = useState(false);
 
   if (memberId) {
     const m = s.members.find((x) => x.id === memberId);
@@ -55,6 +56,15 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       if (!copied) { window.prompt('아래 내용을 복사해 문자로 보내 주세요', text); } else toast('링크를 복사했어요');
       await s.recordMessage(m.id).catch(() => {});
     };
+    const sendTalk = async () => {
+      if (talkBusy) return;
+      setTalkBusy(true);
+      const r = await s.sendAlimtalkLink(m.id).catch(() => null);
+      setTalkBusy(false);
+      if (r?.ok) toast('알림톡으로 링크를 보냈어요');
+      else if (r?.error === 'NO_PHONE') toast('전화번호가 없어서 보낼 수 없어요');
+      else toast('알림톡을 보내지 못했어요. 링크 문자로 보내 주세요');
+    };
     return (
       <>
         <button className="btn sm ghost" style={{ marginTop: 14 }} onClick={() => go('members')}><Icon name="back" size={16} />회원 목록</button>
@@ -67,7 +77,9 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           <div className="perf"><span>{IS_DEMO ? '이 QR 을 카메라에 보여주면 출석돼요' : '회원 페이지의 QR 을 카메라에 보여주면 출석돼요'}</span><span>{s.activePasses(m.id).reduce((n, p) => n + p.remaining, 0)}회 남음</span></div>
         </div>
         <div className="btn-row">
-          {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button> : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+          {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button>
+            : s.alimtalkEnabled ? <button className="btn primary wide" disabled={talkBusy} onClick={() => { void sendTalk(); }}>{talkBusy ? '보내는 중…' : '알림톡으로 링크 보내기'}</button>
+            : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>
 

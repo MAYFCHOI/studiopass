@@ -86,7 +86,8 @@ say "/etc/studiopass (fill these in, then chmod stays 600)"
 install -d -m 700 /etc/studiopass
 [ -f /etc/studiopass/backup.env ] || printf 'AWS_ACCESS_KEY_ID=\nAWS_SECRET_ACCESS_KEY=\nBUCKET=\nAWS_DEFAULT_REGION=ap-northeast-2\n' >/etc/studiopass/backup.env
 [ -f /etc/studiopass/alerts.env ] || printf 'NTFY_TOPIC=\n' >/etc/studiopass/alerts.env
-chmod 600 /etc/studiopass/backup.env /etc/studiopass/alerts.env
+[ -f /etc/studiopass/alimtalk.env ] || printf 'SP_ALIMTALK_API_KEY=\nSP_ALIMTALK_API_SECRET=\nSP_ALIMTALK_PF_ID=\nSP_ALIMTALK_SENDER=\nSP_ALIMTALK_TPL_LINK=\nSP_ALIMTALK_TPL_REMAINING=\nSP_ALIMTALK_TPL_EXPIRING=\nSP_ALIMTALK_TPL_PRO_RENEW=\n' >/etc/studiopass/alimtalk.env  # empty = off, docs/ALIMTALK.md
+chmod 600 /etc/studiopass/backup.env /etc/studiopass/alerts.env /etc/studiopass/alimtalk.env
 
 say "cron"
 install -m 644 "$HERE/crontab" /etc/cron.d/studiopass

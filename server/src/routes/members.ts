@@ -8,6 +8,7 @@ import { tierFor } from '../domain/tiers.js';
 import { parseQr } from '../qr.js';
 import { issueLink } from '../links.js';
 import { toMember } from '../serialize.js';
+import { alimtalkOn, passNotifier, sendLinkAlimtalk } from '../notify/link.js';
 import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr } from './common.js';
 
 const memberOut = (db: Db, id: string) => {
@@ -18,7 +19,7 @@ const memberOut = (db: Db, id: string) => {
 };
 
 export function memberRoutes(d: Deps) {
-  const r = new Hono<AppEnv>(); const db = d.db;
+  const r = new Hono<AppEnv>(); const db = d.db; const onPass = passNotifier(d);
 
   r.post('/members', async (c) => {
     const b = await body(c);
@@ -34,7 +35,7 @@ export function memberRoutes(d: Deps) {
       let assigned = 0;
       if (phone) {
         const open = db.prepare("select id from payments where payer_phone=? and member_id is null and pass_id is null and status='APPROVED' order by paid_at").all(phone) as { id: string }[];
-        for (const p of open) { assignPayment(db, p.id, id, staffId); assigned++; }
+        for (const p of open) { assignPayment(db, p.id, id, staffId, onPass); assigned++; }
       }
       return { id, assigned };
     })();
@@ -59,9 +60,18 @@ export function memberRoutes(d: Deps) {
     return c.json({ url: `${origin}/m/${token}` });
   });
 
-  r.post('/members/:id/messages', (c) => {
+  // channel 없음/SMS_LINK: 화면이 문자 앱을 연 기록만 남긴다. ALIMTALK: 서버가 새 링크를 발급해 바로 보낸다.
+  r.post('/members/:id/messages', async (c) => {
     const id = c.req.param('id');
+    const b = (await body(c)) ?? {};
+    const channel = b.channel ?? 'SMS_LINK';
+    if (channel !== 'SMS_LINK' && channel !== 'ALIMTALK') return bad(c);
     if (!db.prepare('select 1 from members where id=?').get(id)) return notFound(c);
+    if (channel === 'ALIMTALK') {
+      if (!alimtalkOn(d)) return c.json({ error: 'ALIMTALK_OFF' }, 409);
+      const r = await sendLinkAlimtalk(d, id, c.get('me').staffId);
+      return c.json('skipped' in r ? { ok: false, error: 'NO_PHONE' } : r.ok ? { ok: true } : { ok: false, error: 'SEND_FAILED' });
+    }
     db.prepare('insert into messages(id,member_id,channel,kind,created_by,created_at) values(?,?,?,?,?,?)').run(newId(), id, 'SMS_LINK', 'LINK', c.get('me').staffId, nowIso());
     return c.json({ ok: true });
   });

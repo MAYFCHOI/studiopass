@@ -1,7 +1,8 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Db } from '../db.js';
 import type { Role } from '../serialize.js';
-export type Deps = { db: Db; secureCookies: boolean; allowedOrigin: string | null; staticDir?: string; now?: () => Date };
+import type { AlimtalkConfig } from '../notify/alimtalk.js';
+export type Deps = { db: Db; secureCookies: boolean; allowedOrigin: string | null; staticDir?: string; now?: () => Date; alimtalk?: AlimtalkConfig; fetchImpl?: typeof fetch };
 export type Me = { staffId: string; role: Role; name: string; loginId: string };
 export type AppEnv = { Variables: { me: Me } };
 export const COOKIE = 'sp_session';

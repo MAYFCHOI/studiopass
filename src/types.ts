@@ -138,6 +138,8 @@ export interface Actions {
   /** 회원 페이지 링크 발급(재발급하면 예전 링크는 막힌다). URL 을 돌려준다. */
   issueLink(memberId: string): Promise<string>;
   recordMessage(memberId: string): Promise<void>;
+  /** 서버가 새 링크를 발급해 알림톡으로 바로 보낸다(alimtalkEnabled 일 때만). */
+  sendAlimtalkLink(memberId: string): Promise<{ ok: boolean; error?: string }>;
   attend(input: { qr?: string; memberId?: string; courseId: string }): Promise<ScanResult>;
   cancelAttendance(id: string): Promise<void>;
   /** 결제 적재. externalId 또는 (전화+시각+금액) 으로 중복 제거. 전화 매칭되면 회원 배정 + 수강권 생성. */

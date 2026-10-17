@@ -12,6 +12,11 @@ services:
       context: /srv/studiopass/src/${TAG}
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
+    # Kakao alimtalk keys (docs/ALIMTALK.md). Optional: missing file or any empty key = alimtalk off.
+    # env_file changes need a recreate (up -d --force-recreate api), not a restart. required:false needs Compose >= 2.24.
+    env_file:
+      - path: /etc/studiopass/alimtalk.env
+        required: false
     environment:
       - NODE_ENV=production
       - SP_ORIGIN=https://${DOMAIN:?DOMAIN is required}

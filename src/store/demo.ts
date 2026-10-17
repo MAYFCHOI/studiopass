@@ -98,6 +98,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           updateMember: async (id, patch) => { set((s) => ({ members: s.members.map((m) => (m.id === id ? { ...m, ...patch, phone: patch.phone !== undefined ? normalizePhone(patch.phone) : m.phone } : m)) })); },
           issueLink: async (memberId) => location.href.split('#')[0] + '#/members/' + memberId,
           recordMessage: async () => {},
+          sendAlimtalkLink: async () => ({ ok: false, error: 'DEMO' }),
           upsertInstructor: async (i) => { set((s) => ({ instructors: s.instructors.some((x) => x.id === i.id) ? s.instructors.map((x) => (x.id === i.id ? i : x)) : [...s.instructors, i] })); },
           upsertCourse: async (c) => { set((s) => ({ courses: s.courses.some((x) => x.id === c.id) ? s.courses.map((x) => (x.id === c.id ? c : x)) : [...s.courses, c] })); },
           upsertProduct: async (p) => { set((s) => ({ products: s.products.some((x) => x.id === p.id) ? s.products.map((x) => (x.id === p.id ? p : x)) : [...s.products, p] })); },

@@ -78,6 +78,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       updateMember: (id, patch) => mutate(`/members/${id}`, { method: 'PATCH', body: { name: patch.name, phone: patch.phone, memo: patch.memo } }).then(() => {}),
       issueLink: async (memberId) => (await call<{ url: string }>(`/members/${memberId}/link`, { method: 'POST' })).url,
       recordMessage: async (memberId) => { await call(`/members/${memberId}/messages`, { method: 'POST' }); },
+      sendAlimtalkLink: (memberId) => call<{ ok: boolean; error?: string }>(`/members/${memberId}/messages`, { method: 'POST', body: { channel: 'ALIMTALK' } }),
       attend: async (input) => {
         let r: AttendRes;
         try { r = await call<AttendRes>('/attendances', { method: 'POST', body: input }); } catch (e) {

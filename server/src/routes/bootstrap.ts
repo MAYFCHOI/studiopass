@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { addDays, kstDate } from '../util.js';
 import { type AppEnv, type Deps, clock } from './common.js';
+import { alimtalkOn } from '../notify/link.js';
 import { type TierRow, tierOf, toMember, toInstructor, toCourse, toProduct, toPass, toPayment, toAttendance } from '../serialize.js';
 
 const WINDOW_DAYS = 62;
@@ -17,6 +18,7 @@ export function bootstrapRoutes(d: Deps) {
       me: { staffId: me.staffId, name: me.name, role },
       studioName: setting('studio_name') ?? '',
       needsRealPrices: setting('needs_real_prices') === '1',
+      alimtalkEnabled: alimtalkOn(d),
       members: (db.prepare('select * from members order by member_no').all() as any[]).map((m) => toMember(m, tierOf(tiers, counts.get(m.id) ?? 0))),
       instructors: db.prepare('select * from instructors order by name').all().map((x) => toInstructor(x, role)),
       courses: db.prepare('select * from courses order by weekday, start_time, hall').all().map(toCourse),
