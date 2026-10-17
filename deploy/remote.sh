@@ -53,8 +53,10 @@ healthy() { # poll the api inside its container, up to ~60s
   return 1
 }
 
-up_tag() { # $1 = tag, image must already exist
-  docker image inspect "studiopass:$1" >/dev/null 2>&1 || die "image studiopass:$1 not on this host"
+have_image() { docker image inspect "studiopass:$1" >/dev/null 2>&1; }
+
+up_tag() { # $1 = tag. Returns non-zero (never exits) so callers can roll back and notify.
+  if ! have_image "$1"; then printf '[remote] ERROR: image studiopass:%s not on this host\n' "$1" >&2; return 1; fi
   set_env_tag "$1"
   TAG="$1" compose up -d --no-build --remove-orphans
 }
@@ -77,8 +79,7 @@ app_abort() { # put back the pre-deploy files (compose, Caddyfile, scripts, cron
 app_commit() { # $1 = 1 when the previous app/ becomes app.prev/ (tag changed)
   if [ "$1" = 1 ]; then rm -rf "$SP_ROOT/app.prev"; mv "$SP_ROOT/app.pre" "$SP_ROOT/app.prev"; else rm -rf "$SP_ROOT/app.pre"; fi
 }
-app_swap_prev() { # --rollback: app/ <-> app.prev/
-  if [ ! -d "$SP_ROOT/app.prev" ]; then say "WARNING: no app.prev/, keeping current compose/Caddyfile"; return 0; fi
+app_swap_prev() { # --rollback: app/ <-> app.prev/ (caller checks app.prev/ exists)
   rm -rf "$SP_ROOT/app.swap"
   mv "$APP" "$SP_ROOT/app.swap"; mv "$SP_ROOT/app.prev" "$APP"; mv "$SP_ROOT/app.swap" "$SP_ROOT/app.prev"
   install_crontab
@@ -150,9 +151,16 @@ cmd_rollback() {
   local cur prev
   cur=$(current_tag); prev=$(prev_tag)
   [ -n "$prev" ] || die "no PREV_TAG recorded"
+  # Check everything before touching anything.
+  have_image "$prev" || die "image studiopass:$prev is not on this host; nothing changed (redeploy that commit instead)"
+  [ -d "$SP_ROOT/app.prev" ] || die "$SP_ROOT/app.prev/ is missing; nothing changed (redeploy commit $prev instead)"
   say "rolling back $cur -> $prev (data untouched)"
   app_swap_prev
-  up_tag "$prev" || { app_swap_prev; die "compose up of $prev failed; app files swapped back, check 'docker compose ps'"; }
+  if ! up_tag "$prev"; then
+    app_swap_prev
+    if [ -n "$cur" ]; then up_tag "$cur" || true; fi
+    die "compose up of $prev failed; app files swapped back and $cur restarted, check 'docker compose ps'"
+  fi
   echo "$prev" >"$SP_ROOT/CURRENT_TAG"
   echo "$cur" >"$SP_ROOT/PREV_TAG"   # a second --rollback goes forward again
   healthy && say "healthz ok, $prev is live" || die "healthz failed after rollback"
