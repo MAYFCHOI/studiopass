@@ -2,7 +2,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import type { Db } from '../db.js';
 import { newId, nowIso } from '../util.js';
 import { hashPassword } from './password.js';
-const DAY = 86400000, TTL = 30 * DAY;
+/** Idle expiry slides by TTL on every request, but never past MAX_AGE after login (lost/shared desk devices). */
+export const DAY = 86400000, TTL = 30 * DAY, MAX_AGE = 90 * DAY;
 const h = (t: string) => createHash('sha256').update(t).digest('hex');
 export async function createStaff(db: Db, s: { loginId: string; name: string; role: 'OWNER' | 'DESK'; password: string }) {
   if (s.password.length < 8) throw new Error('password must be at least 8 characters');
@@ -17,9 +18,11 @@ export function createSession(db: Db, staffId: string, now = new Date()) {
 }
 export function getSession(db: Db, token: string | undefined, now = new Date()) {
   if (!token) return null;
-  const r = db.prepare('select s.staff_id, s.expires_at, st.role, st.name, st.login_id, st.active from sessions s join staff st on st.id=s.staff_id where s.token_hash=?').get(h(token)) as any;
+  const r = db.prepare('select s.staff_id, s.created_at, s.expires_at, st.role, st.name, st.login_id, st.active from sessions s join staff st on st.id=s.staff_id where s.token_hash=?').get(h(token)) as any;
   if (!r || !r.active || r.expires_at <= nowIso(now)) return null;
-  db.prepare('update sessions set last_seen_at=?, expires_at=? where token_hash=?').run(nowIso(now), new Date(now.getTime() + TTL).toISOString(), h(token));
+  const cap = new Date(r.created_at).getTime() + MAX_AGE;
+  if (!(cap > now.getTime())) { db.prepare('delete from sessions where token_hash=?').run(h(token)); return null; }
+  db.prepare('update sessions set last_seen_at=?, expires_at=? where token_hash=?').run(nowIso(now), new Date(Math.min(now.getTime() + TTL, cap)).toISOString(), h(token));
   return { staffId: r.staff_id as string, role: r.role as 'OWNER' | 'DESK', name: r.name as string, loginId: r.login_id as string };
 }
 export const deleteSession = (db: Db, token: string) => { db.prepare('delete from sessions where token_hash=?').run(h(token)); };

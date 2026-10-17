@@ -14,7 +14,7 @@ export function pickPass(passes: PassRow[], course: { id: string; kind: 'GENERAL
 export function attend(db: Db, a: { memberId: string; courseId: string; staffId: string | null; now?: Date }): AttendResult {
   const now = a.now ?? new Date(); const today = kstDate(now);
   return db.transaction((): AttendResult => {
-    if (!db.prepare('select 1 from members where id=?').get(a.memberId)) return { ok: false, reason: 'UNKNOWN_MEMBER' };
+    if (!db.prepare('select 1 from members where id=? and erased_at is null').get(a.memberId)) return { ok: false, reason: 'UNKNOWN_MEMBER' };
     const course = db.prepare('select id, kind, instructor_id from courses where id=?').get(a.courseId) as { id: string; kind: 'GENERAL' | 'PRO'; instructor_id: string } | undefined;
     if (!course) return { ok: false, reason: 'UNKNOWN_COURSE', memberId: a.memberId };
     if (db.prepare('select 1 from attendances where member_id=? and course_id=? and attended_on=? and cancelled_at is null').get(a.memberId, course.id, today)) return { ok: false, reason: 'ALREADY', memberId: a.memberId };

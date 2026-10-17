@@ -4,7 +4,9 @@ import { audit } from '../audit.js';
 import { type PaymentInput, ingestPayments, assignPayment, cancelPayment, PassInUseError } from '../domain/payments.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
-import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, num, maxLen, LIMITS } from './common.js';
+import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, num, maxLen, LIMITS, ownerOnly, clientIp } from './common.js';
+
+const isErased = (db: any, id: string) => !!(db.prepare('select erased_at from members where id=?').get(id) as { erased_at: string | null } | undefined)?.erased_at;
 
 const MAX_ROWS = 2000;
 const validRow = (r: any): r is PaymentInput => !!r && typeof r === 'object' && (r.source === 'KIOSK' || r.source === 'MANUAL') && str(r.paidAt) && !Number.isNaN(Date.parse(r.paidAt)) && num(r.amount) && str(r.productName) && maxLen(r.productName, LIMITS.productName)
@@ -26,6 +28,7 @@ export function paymentRoutes(d: Deps) {
     const b = await body(c);
     if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt))))) return bad(c);
     if (b.memberId && !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
+    if (b.memberId && isErased(db, b.memberId)) return c.json({ error: 'ERASED' }, 409);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.payerPhone);
     const id = db.transaction(() => {
       const id = newId();
@@ -44,7 +47,22 @@ export function paymentRoutes(d: Deps) {
     const b = await body(c); const id = c.req.param('id');
     if (!b || !str(b.memberId)) return bad(c);
     if (!db.prepare('select 1 from payments where id=?').get(id) || !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
+    if (isErased(db, b.memberId)) return c.json({ error: 'ERASED' }, 409);
     return c.json(assignPayment(db, id, b.memberId, c.get('me').staffId, onPass));
+  });
+
+  // 회원과 연결되지 않은 결제의 결제자 이름·전화 파기(금액·상품·일시는 정산·법정 보관용으로 남긴다).
+  // 연결된 결제는 회원 정보 삭제(/members/:id/erase)로 지운다.
+  r.post('/payments/:id/erase-payer', ownerOnly, (c) => {
+    const id = c.req.param('id');
+    const p = db.prepare('select member_id from payments where id=?').get(id) as { member_id: string | null } | undefined;
+    if (!p) return notFound(c);
+    if (p.member_id) return c.json({ error: 'LINKED' }, 409);
+    db.transaction(() => {
+      db.prepare("update payments set payer_name=null, payer_phone='' where id=?").run(id);
+      audit(db, c.get('me').staffId, 'payment.erase_payer', 'payment', id, undefined, clientIp(c));
+    })();
+    return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
   });
 
   r.post('/payments/:id/cancel', (c) => {

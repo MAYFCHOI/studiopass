@@ -4,7 +4,7 @@ import { audit } from '../audit.js';
 import { settle, settlementDetail } from '../domain/settlement.js';
 import { createStaff } from '../auth/sessions.js';
 import { toInstructor, toCourse, toProduct } from '../serialize.js';
-import { type AppEnv, type Deps, ownerOnly, body, bad, notFound, str, optStr, int, maxLen, LIMITS } from './common.js';
+import { type AppEnv, type Deps, ownerOnly, body, bad, notFound, str, optStr, int, maxLen, LIMITS, clientIp } from './common.js';
 
 const bool = (v: unknown) => v === undefined || typeof v === 'boolean';
 const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, role: r.role, active: !!r.active, createdAt: r.created_at });
@@ -13,17 +13,20 @@ const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, rol
 export function ownerRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db;
   // Guard by path, not '*': a '*' middleware in a sub-app mounted at /api would also catch every other /api route.
-  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*']) r.use(path, ownerOnly);
+  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*', '/audit']) r.use(path, ownerOnly);
 
   r.get('/settlement', (c) => {
     const month = c.req.query('month') ?? '';
     if (!/^\d{4}-\d{2}$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    audit(db, c.get('me').staffId, 'settlement.view', 'settlement', month, undefined, clientIp(c));
     return c.json(settle(db, month));
   });
 
   r.get('/settlement/detail', (c) => {
     const month = c.req.query('month') ?? '';
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    // The detail (every member name and payment of the month) is only fetched for the Excel export.
+    audit(db, c.get('me').staffId, 'settlement.export', 'settlement', month, undefined, clientIp(c));
     return c.json(settlementDetail(db, month));
   });
 
@@ -87,6 +90,24 @@ export function ownerRoutes(d: Deps) {
       audit(db, c.get('me').staffId, 'tiers.replace', 'tiers', null, sorted);
     })();
     return c.json(sorted.map((t: any) => ({ name: t.name.trim(), minCount: t.minCount })));
+  });
+
+  // 접속기록 조회. from/to = KST 날짜(YYYY-MM-DD, 포함), 최신순. 다음 쪽은 응답의 next 를 before 로 넘긴다.
+  r.get('/audit', (c) => {
+    const q = (k: string) => c.req.query(k) ?? '';
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const from = q('from'), to = q('to'), before = q('before');
+    const limit = Math.min(Math.max(Number(q('limit') || 100) || 100, 1), 500);
+    if ((from && !day.test(from)) || (to && !day.test(to)) || (before && !/^[^|]{1,40}\|[A-Za-z0-9]{1,20}$/.test(before))) return bad(c);
+    const kstStart = (d: string) => new Date(`${d}T00:00:00+09:00`).toISOString();
+    const where: string[] = []; const args: unknown[] = [];
+    if (from) { where.push('a.at >= ?'); args.push(kstStart(from)); }
+    if (to) { where.push('a.at < ?'); args.push(new Date(new Date(`${to}T00:00:00+09:00`).getTime() + 86400000).toISOString()); }
+    if (before) { const [at, id] = before.split('|'); where.push('(a.at < ? or (a.at = ? and a.id < ?))'); args.push(at, at, id); }
+    const rows = db.prepare(`select a.*, s.login_id, s.name staff_name from audit_log a left join staff s on s.id = a.staff_id ${where.length ? 'where ' + where.join(' and ') : ''} order by a.at desc, a.id desc limit ?`).all(...args, limit + 1) as any[];
+    const items = rows.slice(0, limit).map((a) => ({ id: a.id, at: a.at, staffId: a.staff_id ?? undefined, loginId: a.login_id ?? undefined, staffName: a.staff_name ?? undefined, action: a.action, entity: a.entity, entityId: a.entity_id ?? undefined, ip: a.ip ?? undefined, detail: a.detail_json ? JSON.parse(a.detail_json) : undefined }));
+    const last = items[items.length - 1];
+    return c.json({ items, next: rows.length > limit && last ? `${last.at}|${last.id}` : null });
   });
 
   r.get('/staff', (c) => c.json(db.prepare('select * from staff order by created_at').all().map(staffOut)));

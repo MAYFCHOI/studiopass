@@ -2,7 +2,7 @@
 import type { Db } from '../db.js';
 import { newId, nowIso, kstDate, addDays, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
-export type PaymentInput = { source: 'KIOSK' | 'MANUAL'; externalId?: string | null; paidAt: string; amount: number; payerName?: string | null; payerPhone?: string | null; productName: string; status?: 'APPROVED' | 'CANCELLED'; raw?: unknown };
+export type PaymentInput = { source: 'KIOSK' | 'MANUAL'; externalId?: string | null; paidAt: string; amount: number; payerName?: string | null; payerPhone?: string | null; productName: string; status?: 'APPROVED' | 'CANCELLED' };
 type ProductRow = { id: string; name: string; course_id: string | null; pass_kind: 'COUNT' | 'PERIOD'; count: number; period_days: number };
 export class PassInUseError extends Error { constructor(public used: number) { super(`pass used ${used} times`); } }
 export function findProduct(db: Db, name: string) {
@@ -59,8 +59,9 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       }
       seen.add(key);
       const id = newId();
-      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,raw_json,created_by,created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, r.source, r.externalId ?? null, r.paidAt, Math.round(r.amount), r.payerName ?? null, phone, r.productName, r.status ?? 'APPROVED', r.raw === undefined ? null : JSON.stringify(r.raw), staffId, nowIso());
+      // Only the whitelisted fields above are stored; a client-sent raw kiosk row is ignored (raw_json stays null).
+      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at) values(?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, r.source, r.externalId ?? null, r.paidAt, Math.round(r.amount), r.payerName ?? null, phone, r.productName, r.status ?? 'APPROVED', staffId, nowIso());
       added++;
       if ((r.status ?? 'APPROVED') !== 'APPROVED' || !phone) continue;
       const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[];

@@ -9,7 +9,10 @@ import { parseQr } from '../qr.js';
 import { issueLink } from '../links.js';
 import { toMember } from '../serialize.js';
 import { alimtalkOn, passNotifier, sendLinkAlimtalk } from '../notify/link.js';
-import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, maxLen, LIMITS } from './common.js';
+import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, maxLen, LIMITS, ownerOnly, clientIp } from './common.js';
+
+export const ERASED_NAME = '삭제된 회원';
+const erased = (c: any) => c.json({ error: 'ERASED' }, 409);
 
 const memberOut = (db: Db, id: string) => {
   const m = db.prepare('select * from members where id=?').get(id) as any;
@@ -47,14 +50,33 @@ export function memberRoutes(d: Deps) {
     if (!b || (b.name !== undefined && !(str(b.name) && maxLen(b.name, LIMITS.name))) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)) return bad(c);
     const m = db.prepare('select * from members where id=?').get(id) as any;
     if (!m) return notFound(c);
+    if (m.erased_at) return erased(c);
     db.prepare('update members set name=?, phone=?, memo=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, b.phone !== undefined ? normalizePhone(b.phone) : m.phone, b.memo !== undefined ? b.memo : m.memo, id);
     audit(db, c.get('me').staffId, 'member.update', 'member', id, { fields: Object.keys(b).filter((k) => ['name', 'phone', 'memo'].includes(k)) });
     return c.json(memberOut(db, id));
   });
 
+  // 개인정보 파기: 이름·전화·메모와 회원 링크, 이 회원 결제의 결제자 이름·전화를 지운다.
+  // 출석·수강권·결제 금액은 남기므로 정산 합계는 바뀌지 않는다. 되돌릴 수 없다.
+  r.post('/members/:id/erase', ownerOnly, (c) => {
+    const id = c.req.param('id'); const staffId = c.get('me').staffId;
+    const m = db.prepare('select erased_at from members where id=?').get(id) as { erased_at: string | null } | undefined;
+    if (!m) return notFound(c);
+    if (m.erased_at) return erased(c);
+    db.transaction(() => {
+      db.prepare("update members set name=?, phone='', memo=null, erased_at=? where id=?").run(ERASED_NAME, nowIso(), id);
+      db.prepare('delete from member_links where member_id=?').run(id);
+      const n = db.prepare("update payments set payer_name=null, payer_phone='' where member_id=?").run(id).changes;
+      audit(db, staffId, 'member.erase', 'member', id, { payments: n }, clientIp(c));
+    })();
+    return c.json(memberOut(db, id));
+  });
+
   r.post('/members/:id/link', (c) => {
     const id = c.req.param('id');
-    if (!db.prepare('select 1 from members where id=?').get(id)) return notFound(c);
+    const lm = db.prepare('select erased_at from members where id=?').get(id) as { erased_at: string | null } | undefined;
+    if (!lm) return notFound(c);
+    if (lm.erased_at) return erased(c);
     const token = issueLink(db, id, c.get('me').staffId);
     const origin = d.allowedOrigin ?? c.req.header('origin') ?? new URL(c.req.url).origin;
     return c.json({ url: `${origin}/m/${token}` });
@@ -66,7 +88,9 @@ export function memberRoutes(d: Deps) {
     const b = (await body(c)) ?? {};
     const channel = b.channel ?? 'SMS_LINK';
     if (channel !== 'SMS_LINK' && channel !== 'ALIMTALK') return bad(c);
-    if (!db.prepare('select 1 from members where id=?').get(id)) return notFound(c);
+    const mm = db.prepare('select erased_at from members where id=?').get(id) as { erased_at: string | null } | undefined;
+    if (!mm) return notFound(c);
+    if (mm.erased_at) return erased(c);
     if (channel === 'ALIMTALK') {
       if (!alimtalkOn(d)) return c.json({ error: 'ALIMTALK_OFF' }, 409);
       const r = await sendLinkAlimtalk(d, id, c.get('me').staffId);
@@ -86,7 +110,7 @@ export function memberRoutes(d: Deps) {
       memberId = parsed;
     } else memberId = b.memberId;
     const res = attend(db, { memberId, courseId: b.courseId, staffId: c.get('me').staffId, now: clock(d) });
-    const m = db.prepare('select id, name from members where id=?').get(memberId) as { id: string; name: string } | undefined;
+    const m = db.prepare('select id, name from members where id=? and erased_at is null').get(memberId) as { id: string; name: string } | undefined;
     return c.json(m ? { ...res, member: { id: m.id, name: m.name } } : res);
   });
 

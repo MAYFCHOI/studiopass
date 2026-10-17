@@ -12,7 +12,7 @@ export function publicRoutes(d: Deps) {
   r.get('/public/m/:token', (c) => {
     c.header('Cache-Control', 'no-store');
     const memberId = memberIdForToken(db, c.req.param('token'));
-    const m = memberId ? (db.prepare('select id, name, created_at from members where id=?').get(memberId) as { id: string; name: string; created_at: string } | undefined) : undefined;
+    const m = memberId ? (db.prepare('select id, name, created_at from members where id=? and erased_at is null').get(memberId) as { id: string; name: string; created_at: string } | undefined) : undefined;
     if (!m) return c.json({ error: 'NOT_FOUND' }, 404);
     const today = kstDate(clock(d));
     const tier = tierFor(db, m.id);

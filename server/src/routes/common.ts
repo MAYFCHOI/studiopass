@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Db } from '../db.js';
 import type { Role } from '../serialize.js';
 import type { AlimtalkConfig } from '../notify/alimtalk.js';
@@ -25,3 +26,9 @@ export const ownerOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get('me').role !== 'OWNER') return c.json({ error: 'OWNER_ONLY' }, 403);
   await next();
 };
+/** Client address: first X-Forwarded-For entry (Caddy replaces any client-sent one), else the socket peer. */
+export function clientIp(c: Context) {
+  const xff = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
+  if (xff) return xff;
+  try { return getConnInfo(c).remote.address ?? 'unknown'; } catch { return 'unknown'; }
+}

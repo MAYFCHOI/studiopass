@@ -8,7 +8,7 @@ export function tierOf(tiers: TierRow[], count: number) {
   tiers.forEach((t, i) => { if (count >= t.min_count) idx = i; });
   return { name: tiers[idx]?.name ?? '', level: idx + 1, count };
 }
-export const toMember = (r: any, tier: { name: string; level: number; count: number }) => ({ id: r.id, memberNo: r.member_no, name: r.name, phone: r.phone, memo: opt(r.memo), createdAt: r.created_at, tier });
+export const toMember = (r: any, tier: { name: string; level: number; count: number }) => ({ id: r.id, memberNo: r.member_no, name: r.name, phone: r.phone, memo: opt(r.memo), createdAt: r.created_at, tier, ...(r.erased_at ? { erased: true } : {}) });
 export const toInstructor = (r: any, role: Role) => ({
   id: r.id, name: r.name, crew: r.genres, settlementType: r.settlement_type, active: !!r.active,
   ...(owner(role) ? { ratioInstructor: r.ratio_instructor, perSessionFee: r.per_session_fee } : {}),

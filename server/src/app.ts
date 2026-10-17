@@ -42,6 +42,8 @@ export function createApp(deps: Deps) {
     });
     app.get('/m/*', (c) => c.html(memberHtml()));
     app.use('*', serveStatic({ root }));
+    // A missing hashed asset must not fall back to index.html: that HTML would be cached as immutable under the asset name.
+    app.all('/assets/*', (c) => c.text('Not Found', 404));
     app.get('*', (c) => c.html(indexHtml()));
   }
 
