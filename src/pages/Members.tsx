@@ -82,6 +82,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>
+        {!IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
 
         <h2>수강권</h2>
         {passes.length === 0 ? <p className="sub">아직 수강권이 없어요. 결제가 들어오면 자동으로 생겨요.</p> : (
