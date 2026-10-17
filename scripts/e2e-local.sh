@@ -30,11 +30,19 @@ for who in "create-owner owner 원장" "create-desk desk 인포"; do
 done
 pass "cli create-owner / create-desk"
 
+if nc -z localhost "$PORT" 2>/dev/null; then
+  echo "FAIL  port $PORT is already in use; stop that process or run with E2E_PORT=<free port>"; exit 1
+fi
 NODE_ENV=production SP_STATIC="$ROOT/dist" SP_MIGRATIONS="$ROOT/server/migrations" SP_ORIGIN="$ORIGIN" PORT="$PORT" \
   node "$ROOT/server/dist/server/src/main.js" >"$TMP/server.log" 2>&1 &
 PID=$!
-for _ in $(seq 1 50); do curl -fs "$ORIGIN/api/healthz" >/dev/null 2>&1 && break; sleep 0.2; done
-curl -fs "$ORIGIN/api/healthz" >/dev/null 2>&1 && pass "server up (healthz)" || { echo "FAIL  server start"; cat "$TMP/server.log"; exit 1; }
+UP=0
+for _ in $(seq 1 50); do
+  kill -0 "$PID" 2>/dev/null || break
+  curl -fs "$ORIGIN/api/healthz" >/dev/null 2>&1 && { UP=1; break; }
+  sleep 0.2
+done
+if [ "$UP" = 1 ] && kill -0 "$PID" 2>/dev/null; then pass "server up (healthz)"; else echo "FAIL  server did not start; log tail:"; tail -20 "$TMP/server.log"; exit 1; fi
 
 # Secure cookies: curl over http will not send them back, so keep the cookie by hand.
 login() { # login <id> -> prints "sp_session=..." ; body in $TMP/login.json
