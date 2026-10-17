@@ -49,4 +49,25 @@ describe('payments', () => {
     const { db, member } = makeDb(); member('가', '01011112222'); member('나', '01011112222');
     expect(ingestPayments(db, [row()], null).matched).toBe(0);
   });
+  it('blank product name creates no pass', () => {
+    const { db, member } = makeDb(); member();
+    ingestPayments(db, [row({ productName: '' }), row({ externalId: '2', productName: '  ' })], null);
+    expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(0);
+  });
+  it('matches kiosk name with suffix to the product', () => {
+    const { db, member } = makeDb(); member();
+    ingestPayments(db, [row({ productName: '정규 클래스 8회권 (카드)' })], null);
+    expect((db.prepare('select total_count c from passes').get() as any).c).toBe(8);
+  });
+  it('short name matches nothing', () => {
+    const { db, member } = makeDb(); member();
+    ingestPayments(db, [row({ productName: '회권' })], null);
+    expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(0);
+  });
+  it('cancelling twice writes one audit row', () => {
+    const { db, member } = makeDb(); member(); ingestPayments(db, [row()], null);
+    const pay = db.prepare('select id from payments').get() as any;
+    cancelPayment(db, pay.id, 'st'); cancelPayment(db, pay.id, 'st');
+    expect((db.prepare("select count(*) n from audit_log where action='payment.cancel'").get() as any).n).toBe(1);
+  });
 });

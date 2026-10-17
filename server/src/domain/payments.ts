@@ -7,8 +7,11 @@ type ProductRow = { id: string; name: string; course_id: string | null; pass_kin
 export class PassInUseError extends Error { constructor(public used: number) { super(`pass used ${used} times`); } }
 export function findProduct(db: Db, name: string) {
   const all = db.prepare('select id,name,course_id,pass_kind,count,period_days from products where active=1').all() as ProductRow[];
-  const n = name.trim();
-  return all.find((p) => p.name.trim() === n) ?? all.find((p) => n.includes(p.name) || p.name.includes(n));
+  const n = (name ?? '').trim();
+  if (!n) return undefined;
+  const exact = all.find((p) => p.name.trim() === n);
+  if (exact) return exact;
+  return all.filter((p) => p.name.trim() && n.includes(p.name.trim())).sort((a, b) => b.name.length - a.name.length)[0];
 }
 function createPass(db: Db, paymentId: string, memberId: string, productName: string, paidAt: string, amount: number) {
   const prod = findProduct(db, productName); if (!prod) return null;
@@ -52,8 +55,8 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
 }
 export function cancelPayment(db: Db, paymentId: string, staffId: string | null) {
   db.transaction(() => {
-    const p = db.prepare('select id, pass_id from payments where id=?').get(paymentId) as { id: string; pass_id: string | null } | undefined;
-    if (!p) return;
+    const p = db.prepare('select id, pass_id, status from payments where id=?').get(paymentId) as { id: string; pass_id: string | null; status: string } | undefined;
+    if (!p || p.status === 'CANCELLED') return;
     if (p.pass_id) {
       const used = (db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(p.pass_id) as { n: number }).n;
       if (used > 0) throw new PassInUseError(used);
