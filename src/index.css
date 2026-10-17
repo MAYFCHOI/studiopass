@@ -258,6 +258,7 @@ h2 { font-weight: 800; letter-spacing: -0.02em; }
 .empty { color: var(--mute); }
 .toast { background: var(--ink); color: var(--paper); }
 .scan-frame div { border-color: var(--paper); border-radius: 10px; }
+.scan-wrap .empty, .scan-wrap .empty b, .scan-hint { color: var(--paper); }
 
 /* 출석 확인: 검정 무대 위 큰 이름 */
 .spot { background: var(--ink); color: var(--paper); animation: flash .35s ease-out; }
