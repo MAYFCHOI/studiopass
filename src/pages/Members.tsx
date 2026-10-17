@@ -10,6 +10,16 @@ import { passName, courseTitle } from '../lib/labels';
 import logoMark from '../assets/logo-mark.png';
 import { toast } from '../components/Toast';
 import { IS_DEMO } from '../lib/mode';
+import { matchMember, samePhoneMembers } from '../lib/search';
+import { useBusy, newRequestKey } from '../lib/useBusy';
+import type { MemberHistory } from '../types';
+
+/** 화면 목록(최근 62일)과 서버 전체 기록을 id 로 합친다. 같은 id 는 화면 쪽(더 최신)을 쓴다. */
+function merge<T extends { id: string }>(recent: T[], all?: T[]): T[] {
+  if (!all) return recent;
+  const ids = new Set(recent.map((x) => x.id));
+  return [...recent, ...all.filter((x) => !ids.has(x.id))];
+}
 
 function QR({ text }: { text: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -25,13 +35,25 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [talkBusy, setTalkBusy] = useState(false);
   const [erasing, setErasing] = useState(false);
   const [eraseBusy, setEraseBusy] = useState(false);
+  const [busy, run] = useBusy();
+  const [formKey, setFormKey] = useState(newRequestKey); // 새 회원 폼마다 하나(두 번 눌러도 회원은 한 명)
+  const [history, setHistory] = useState<{ id: string; h: MemberHistory | null } | null>(null);
+  const [showAllFor, setShowAllFor] = useState<string | null>(null); // 출석 기록 전부 보기(회원별)
+  const memberHistory = s.memberHistory;
+  useEffect(() => {
+    if (!memberId) return;
+    let live = true;
+    memberHistory(memberId).then((h) => { if (live) setHistory({ id: memberId, h }); }, () => { if (live) setHistory({ id: memberId, h: null }); });
+    return () => { live = false; };
+  }, [memberId, memberHistory]);
 
   if (memberId) {
     const m = s.members.find((x) => x.id === memberId);
     if (!m) return <div className="empty"><b>회원을 찾을 수 없어요</b><button className="btn sm" onClick={() => go('members')}>목록으로</button></div>;
-    const passes = s.passes.filter((p) => p.memberId === m.id).sort((a, b) => b.validFrom.localeCompare(a.validFrom));
-    const att = s.attendances.filter((a) => a.memberId === m.id).sort((a, b) => b.attendedAt.localeCompare(a.attendedAt));
-    const pays = s.payments.filter((p) => p.memberId === m.id).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+    const loaded = history?.id === m.id; const h = loaded ? history.h ?? undefined : undefined; // 서버 전체 기록(62일 밖 포함), 받기 전에는 화면 목록만
+    const passes = merge(s.passes.filter((p) => p.memberId === m.id), h?.passes).sort((a, b) => b.validFrom.localeCompare(a.validFrom));
+    const att = merge(s.attendances.filter((a) => a.memberId === m.id), h?.attendances).sort((a, b) => b.attendedAt.localeCompare(a.attendedAt));
+    const pays = merge(s.payments.filter((p) => p.memberId === m.id), h?.payments).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
     const course = (id: string) => { const c = s.courses.find((x) => x.id === id); return c ? courseTitle(s, c) : '삭제된 수업'; };
     const t = dayjs().format('YYYY-MM-DD');
     const share = async () => {
@@ -45,7 +67,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       toast('QR 이미지를 저장했어요');
     };
     // 서버 모드: QR 은 서버가 서명(AM2)해서 회원 페이지에만 보인다. 관리자 화면은 그 페이지 링크를 보낸다.
-    const sendLink = async () => {
+    const sendLink = () => run(async () => {
       const url = await s.issueLink(m.id).catch(() => null);
       if (!url) { toast('링크를 만들지 못했어요. 다시 시도해 주세요'); return; }
       const text = '[THE DEPTH] ' + m.name + '님 회원 페이지예요. 출석할 때 이 화면의 QR 을 보여주세요.\n' + url;
@@ -58,7 +80,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       const copied = await navigator.clipboard?.writeText(text).then(() => true, () => false);
       if (!copied) { window.prompt('아래 내용을 복사해 문자로 보내 주세요', text); } else toast('링크를 복사했어요');
       await s.recordMessage(m.id).catch(() => {});
-    };
+    });
     const sendTalk = async () => {
       if (talkBusy) return;
       setTalkBusy(true);
@@ -90,10 +112,10 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         {!m.erased && <div className="btn-row">
           {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button>
             : s.alimtalkEnabled ? <button className="btn primary wide" disabled={talkBusy} onClick={() => { void sendTalk(); }}>{talkBusy ? '보내는 중…' : '알림톡으로 링크 보내기'}</button>
-            : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+            : <button className="btn primary wide" disabled={busy} onClick={() => { void sendLink(); }}>{busy ? '링크 만드는 중…' : '링크 문자 보내기'}</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>}
-        {!m.erased && !IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+        {!m.erased && !IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} disabled={busy} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
 
         <h2>수강권</h2>
         {passes.length === 0 ? <p className="sub">아직 수강권이 없어요. 결제가 들어오면 자동으로 생겨요.</p> : (
@@ -113,7 +135,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         <h2>출석 기록</h2>
         {att.length === 0 ? <p className="sub">출석 기록이 없어요.</p> : (
           <div className="list">
-            {att.slice(0, 30).map((a) => (
+            {(showAllFor === m.id ? att : att.slice(0, 30)).map((a) => (
               <div className="row" key={a.id} style={a.cancelledAt ? { opacity: .4 } : undefined}>
                 <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.courses.find((c) => c.id === a.courseId)?.hall}{s.passes.find((p) => p.id === a.passId)?.kind === 'PERIOD' && ' · 월정액'}{a.cancelledAt && ' · 취소됨'}</div></div>
                 {!a.cancelledAt && <button className="btn sm ghost" onClick={() => { if (confirm('이 출석을 취소하고 횟수를 되돌릴까요?')) { s.cancelAttendance(a.id).then(() => toast('출석을 취소했어요'), () => {}); } }}>취소</button>}
@@ -121,6 +143,9 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             ))}
           </div>
         )}
+
+        {att.length > 30 && showAllFor !== m.id && <button className="btn sm ghost" style={{ marginTop: 8 }} onClick={() => setShowAllFor(m.id)}>더 보기 (전체 {att.length}건)</button>}
+        {!h && !IS_DEMO && <p className="sub">{loaded ? '최근 62일 기록만 보여요. 전체 기록을 불러오지 못했어요.' : '최근 62일 기록이에요. 전체 기록을 불러오는 중…'}</p>}
 
         <h2>결제</h2>
         {pays.length === 0 ? <p className="sub">결제 내역이 없어요.</p> : (
@@ -154,7 +179,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
 
         {adding && (
           <Sheet onClose={() => setAdding(false)} title="회원 정보 수정">
-            <MemberForm form={form} setForm={setForm} onSubmit={() => { s.updateMember(m.id, form).then(() => { setAdding(false); toast('저장했어요'); }, () => {}); }} label="저장" />
+            <MemberForm form={form} setForm={setForm} busy={busy} others={samePhoneMembers(s.members, form.phone, m.id).length} onSubmit={() => { void run(() => s.updateMember(m.id, form).then(() => { setAdding(false); toast('저장했어요'); })); }} label="저장" />
           </Sheet>
         )}
       </>
@@ -163,7 +188,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
 
   const qq = q.trim();
   const live = s.members.filter((m) => !m.erased);
-  const list = live.filter((m) => !qq || m.name.includes(qq) || m.phone.includes(qq.replace(/\D/g, '') || '\u0000') || m.memberNo.includes(qq)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  const list = live.filter((m) => matchMember(m, qq)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   return (
     <>
       <h1><small>{live.length}명</small>회원</h1>
@@ -183,24 +208,24 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         {list.length === 0 && <div className="empty"><b>검색 결과가 없어요</b>아래에서 새 회원을 등록할 수 있어요</div>}
       </div>
       <div style={{ height: 70 }} />
-      <button className="btn primary fab" onClick={() => { setForm({ name: '', phone: '', memo: '' }); setAdding(true); }}><Icon name="plus" />새 회원</button>
+      <button className="btn primary fab" onClick={() => { setForm({ name: '', phone: '', memo: '' }); setFormKey(newRequestKey()); setAdding(true); }}><Icon name="plus" />새 회원</button>
       {adding && (
         <Sheet onClose={() => setAdding(false)} title="새 회원 등록">
-          <MemberForm form={form} setForm={setForm} onSubmit={() => { s.addMember(form).then((m) => { setAdding(false); toast(`${m.name} 등록, QR 이 발급됐어요`); go('members', m.id); }, () => {}); }} label="등록하고 QR 만들기" />
+          <MemberForm form={form} setForm={setForm} busy={busy} others={samePhoneMembers(s.members, form.phone).length} onSubmit={() => { void run(() => s.addMember(form, { idempotencyKey: formKey }).then((m) => { setAdding(false); toast(`${m.name} 등록, QR 이 발급됐어요`); go('members', m.id); })); }} label="등록하고 QR 만들기" />
         </Sheet>
       )}
     </>
   );
 }
 
-function MemberForm({ form, setForm, onSubmit, label }: { form: { name: string; phone: string; memo: string }; setForm: (f: { name: string; phone: string; memo: string }) => void; onSubmit: () => void; label: string }) {
+function MemberForm({ form, setForm, onSubmit, label, busy, others }: { form: { name: string; phone: string; memo: string }; setForm: (f: { name: string; phone: string; memo: string }) => void; onSubmit: () => void; label: string; busy: boolean; others: number }) {
   const ok = form.name.trim().length > 0 && form.phone.replace(/\D/g, '').length >= 10;
   return (
-    <form onSubmit={(e) => { e.preventDefault(); if (ok) onSubmit(); }}>
+    <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) onSubmit(); }}>
       <div className="field"><label>이름</label><input className="input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-      <div className="field"><label>휴대폰 번호 (키오스크 결제와 자동으로 맞춰요)</label><input className="input" inputMode="tel" placeholder="010-0000-0000" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+      <div className="field"><label>휴대폰 번호 (키오스크 결제와 자동으로 맞춰요)</label><input className="input" inputMode="tel" placeholder="010-0000-0000" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />{others > 0 && <span className="hint" role="note">같은 번호 회원 {others}명이 있어요. 같은 번호를 두 명이 쓰면 키오스크 결제가 자동으로 연결되지 않아요</span>}</div>
       <div className="field"><label>메모</label><input className="input" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} /><span className="hint">건강·종교 같은 민감한 정보는 적지 마세요</span></div>
-      <button className="btn primary wide" type="submit" disabled={!ok}>{label}</button>
+      <button className="btn primary wide" type="submit" disabled={!ok || busy}>{busy ? '저장 중…' : label}</button>
     </form>
   );
 }

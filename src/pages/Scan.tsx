@@ -8,11 +8,13 @@ import { IS_DEMO } from '../lib/mode';
 import { useOnline } from '../lib/useOnline';
 import { ClassCard } from '../components/ClassCard';
 import { courseTitle, courseMeta, passName } from '../lib/labels';
+import { matchMember } from '../lib/search';
 
 export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
   const s = useStore();
   const wd = dayjs().day();
-  const todays = useMemo(() => s.courses.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime)), [s.courses, wd]);
+  const live = useMemo(() => s.courses.filter((c) => c.active !== false), [s.courses]); // 쉬는 수업은 출석 화면에 안 보인다
+  const todays = useMemo(() => live.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime)), [live, wd]);
   const nowMin = dayjs().hour() * 60 + dayjs().minute();
   const nearest = todays.reduce<string | undefined>((best, c) => {
     const m = Number(c.startTime.slice(0, 2)) * 60 + Number(c.startTime.slice(3));
@@ -27,7 +29,8 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
   const [q, setQ] = useState('');
   const scanner = useRef<Html5Qrcode | null>(null);
   const busy = useRef(false);
-  const list = showAll ? s.courses : todays;
+  const [pending, setPending] = useState(false);
+  const list = showAll ? live : todays;
   // 서버 모드에서 끊겼으면 카메라 결과를 처리하지 않는다(카메라 콜백이 최신 값을 보도록 ref).
   const offline = !useOnline() && !IS_DEMO;
   const offlineRef = useRef(offline);
@@ -38,7 +41,11 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     if (busy.current) return;
     busy.current = true;
     if (!courseId) { setResult({ ok: false, reason: 'NO_COURSE' }); return; }
-    s.attend({ ...input, courseId }).then((r) => {
+    setPending(true);
+    // store.attend 는 시간 제한(8초)이 있어 끊긴 와이파이에서도 OFFLINE 으로 끝난다. 실패하면 다음 스캔을 막지 않는다.
+    s.attend({ ...input, courseId }).catch((): ScanResult => ({ ok: false, reason: 'ERROR' })).then((r) => {
+      if (!r.ok) busy.current = false;
+      setPending(false);
       setResult(r);
       if (navigator.vibrate) navigator.vibrate(r.ok ? 40 : [60, 40, 60]);
     });
@@ -84,7 +91,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, courseId, camIdx]);
 
-  const found = q.trim() ? s.members.filter((m) => !m.erased && (m.name.includes(q.trim()) || m.phone.includes(q.replace(/\D/g, '')) || m.memberNo.includes(q.trim()))).slice(0, 6) : [];
+  const found = q.trim() ? s.members.filter((m) => !m.erased && matchMember(m, q)).slice(0, 6) : [];
   const course = s.courses.find((c) => c.id === courseId);
 
   return (
@@ -104,6 +111,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
           <div id="reader" />
           <div className="scan-frame"><div /></div>
           <div className="scan-hint">회원 QR 을 네모 안에 맞춰 주세요</div>
+          {pending && <div className="scan-busy" role="status">처리 중…</div>}
           {cams.length > 1 && <button className="btn sm" style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,.6)' }} onClick={() => setCamIdx((i) => i + 1)}>카메라 전환</button>}
         </>)}
       </div>
@@ -112,7 +120,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
       <input className="input" placeholder="이름, 전화번호 뒷자리, 회원번호" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="list">
         {found.map((m) => (
-          <button className="row" key={m.id} onClick={() => { setQ(''); handle({ memberId: m.id }); }}>
+          <button className="row" key={m.id} disabled={pending} onClick={() => { setQ(''); handle({ memberId: m.id }); }}>
             <div className="avatar">{m.name.slice(-2)}</div>
             <div className="main"><div className="t">{m.name}</div><div className="d">{m.memberNo} · {s.activePasses(m.id).map((p) => `${passName(s, p)} ${p.remaining}`).join(', ') || '수강권 없음'}</div></div>
             <span className="chip">출석</span>
@@ -125,7 +133,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
           <div className="kicker">{result.ok ? `${dayjs(result.attendedAt).format('HH:mm')} · ${courseTitle(s, result.course)}` : '출석 안 됨'}</div>
           <p className="who">{result.ok ? result.member.name : result.member?.name ?? '확인 필요'}</p>
           <p className="what">{result.ok ? '출석 완료' : reasonText(result.reason)}</p>
-          <p className="left">{result.ok ? (<>{passName(s, result.pass)} · 남은 횟수 <b className="num">{result.pass.remaining}</b> / {result.pass.totalCount} · {dayjs(result.pass.validTo).format('M/D')}까지</>) : (result.member ? <button className="chip" onClick={(e) => { e.stopPropagation(); go('members', result.member!.id); }}>회원 정보 보기</button> : ' ')}</p>
+          <p className="left">{result.ok ? (<>{passName(s, result.pass)} · 남은 횟수 <b className="num">{result.pass.remaining}</b> / {result.pass.totalCount} · {dayjs(result.pass.validTo).format('M/D')}까지</>) : (result.member ? <>{result.reason === 'ALREADY' && result.remaining !== undefined && <>남은 횟수 <b className="num">{result.remaining}</b>{result.total ? ` / ${result.total}` : ''} · </>}<button className="chip" onClick={(e) => { e.stopPropagation(); go('members', result.member!.id); }}>회원 정보 보기</button></> : ' ')}</p>
           <button className="ok" onClick={() => { setResult(null); busy.current = false; }}>다음 사람</button>
         </div>
       )}

@@ -65,6 +65,10 @@ export interface Payment {
   status: PaymentStatus;
   memberId?: string; // assigned member
   passId?: string; // pass created
+  /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행 */
+  review?: 'REFUND_IN_USE' | 'REFUND_UNMATCHED';
+  refundOf?: string; // 환불 행이 가리키는 원 결제
+  importBatchId?: string; // 엑셀 업로드 묶음(되돌리기용)
   raw?: Record<string, unknown>;
 }
 
@@ -112,10 +116,10 @@ export interface Me { name: string; role: Role; staffId?: string }
 export interface Tier { name: string; minCount: number }
 
 /** 서버 출석 실패 코드 + 화면에서만 생기는 코드(NO_COURSE, OFFLINE, ERROR). 문구는 lib/reasons.ts */
-export type ScanFail = 'UNKNOWN_QR' | 'UNKNOWN_MEMBER' | 'UNKNOWN_COURSE' | 'ALREADY' | 'PRO_ONLY' | 'EMPTY' | 'EXPIRED' | 'NO_PASS' | 'NO_COURSE' | 'OFFLINE' | 'ERROR';
+export type ScanFail = 'UNKNOWN_QR' | 'UNKNOWN_MEMBER' | 'UNKNOWN_COURSE' | 'INACTIVE_COURSE' | 'ALREADY' | 'PRO_ONLY' | 'EMPTY' | 'EXPIRED' | 'NO_PASS' | 'NO_COURSE' | 'OFFLINE' | 'ERROR';
 export type ScanResult =
   | { ok: true; member: { id: string; name: string }; pass: Pass; course: Course; attendedAt: string }
-  | { ok: false; reason: ScanFail; member?: { id: string; name: string } };
+  | { ok: false; reason: ScanFail; member?: { id: string; name: string }; remaining?: number; total?: number; validTo?: string };
 
 export interface SettlementLine {
   instructor: Instructor;
@@ -128,7 +132,19 @@ export interface SettlementLine {
   proTickets: number; // 전문반 자유수강 출석(기록만)
 }
 
-export type ImportResult = { added: number; dup: number; matched: number; cancelled: number; cancelFailed: number };
+export type ImportResult = {
+  added: number; dup: number; matched: number; cancelled: number; cancelFailed: number;
+  refundUnmatched: number;
+  /** 서버가 받지 않은 행. line = 엑셀 행 번호(알 때) */
+  rejected: { line?: number; reason: string }[]; rejectedCount: number;
+  batchId?: string;
+  /** 중복으로 센 행이 예전에 어느 업로드로 들어왔는지(잘못 올린 업로드 되돌리기용) */
+  dupBatches: { batchId: string; count: number }[];
+};
+/** 엑셀에서 읽은 결제 한 행. line 은 엑셀 행 번호(서버에는 보내지 않는다). */
+export type ImportRow = Omit<Payment, 'id'> & { line?: number };
+export type AssignResult = { ok: true; passId?: string; moved?: boolean } | { ok: false; error: 'PASS_IN_USE' | 'PAYMENT_CANCELLED' | 'ERASED'; used?: number };
+export interface MemberHistory { attendances: Attendance[]; payments: Payment[]; passes: Pass[] }
 /** 정산 엑셀 상세(서버가 그 달 전체를 준다. bootstrap 의 62일 창과 무관). */
 export interface SettlementDetail {
   attendances: { attendedAt: string; member: string | null; course: string | null; instructor: string | null; passKind: PassKind; value: number }[];
@@ -139,9 +155,10 @@ export interface NewPayment { memberId: string; productName: string; amount: num
 
 export interface Actions {
   load(): Promise<void>;
-  login(loginId: string, password: string): Promise<{ ok: boolean; error?: 'INVALID' | 'LIMIT' | 'BUSY' }>;
+  login(loginId: string, password: string): Promise<{ ok: boolean; error?: 'INVALID' | 'LIMIT' | 'BUSY' | 'OFFLINE' }>;
   logout(): Promise<void>;
-  addMember(m: { name: string; phone: string; memo?: string }): Promise<Member>;
+  /** idempotencyKey: 폼마다 하나. 같은 키로 다시 보내면 서버가 처음 만든 회원을 돌려준다(두 번 누름 방지). */
+  addMember(m: { name: string; phone: string; memo?: string }, opts?: { idempotencyKey?: string }): Promise<Member>;
   updateMember(id: string, patch: Partial<Member>): Promise<void>;
   /** 원장 전용: 회원 개인정보 파기(이름·전화·메모·링크·결제자 정보). 출석·수강권·결제 금액은 남는다. 되돌릴 수 없다 */
   eraseMember(id: string): Promise<void>;
@@ -156,9 +173,18 @@ export interface Actions {
   cancelAttendance(id: string): Promise<void>;
   /** 결제 적재. externalId 또는 (전화+시각+금액) 으로 중복 제거. 전화 매칭되면 회원 배정 + 수강권 생성.
    *  같은 승인번호의 취소 행은 저장된 승인 결제를 취소(cancelled), 출석에 쓰인 수강권이면 그대로 두고 cancelFailed. */
-  importPayments(rows: Omit<Payment, 'id'>[]): Promise<ImportResult>;
-  addPayment(p: NewPayment): Promise<void>;
-  assignPayment(paymentId: string, memberId: string): Promise<void>;
+  importPayments(rows: ImportRow[], opts?: { batchId?: string }): Promise<ImportResult>;
+  /** 원장 전용: 잘못 올린 업로드 묶음 되돌리기(출석에 쓰인 수강권의 결제는 남긴다) */
+  revertImport(batchId: string): Promise<{ removed: number; kept: number }>;
+  addPayment(p: NewPayment, opts?: { idempotencyKey?: string }): Promise<void>;
+  /** 결제를 회원에게 연결. 이미 다른 회원에게 연결된 결제는 수강권을 옮긴다(출석에 쓰였으면 PASS_IN_USE). */
+  assignPayment(paymentId: string, memberId: string): Promise<AssignResult>;
+  /** 원 결제를 찾지 못한 환불 행에 원 결제를 고른다(원 결제가 취소된다) */
+  linkRefund(refundId: string, originalId: string): Promise<{ ok: true } | { ok: false; used: number }>;
+  /** 확인 필요 표시를 지운다(사람이 확인함) */
+  clearReview(paymentId: string): Promise<void>;
+  /** 회원 상세용 전체 기록(서버: bootstrap 의 62일 창 밖까지) */
+  memberHistory(memberId: string): Promise<MemberHistory>;
   cancelPayment(paymentId: string): Promise<{ ok: true } | { ok: false; used: number }>;
   upsertInstructor(i: Instructor): Promise<void>;
   upsertCourse(c: Course): Promise<void>;

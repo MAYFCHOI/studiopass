@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { IS_DEMO } from '../lib/mode';
 
 export class ErrorBoundary extends Component<{ children: ReactNode; resetKey: string }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -13,7 +14,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; resetKey: st
         <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, color: 'var(--danger)', background: 'var(--surface)', padding: 12, borderRadius: 12 }}>{e.message}{'\n'}{(e.stack ?? '').split('\n').slice(1, 4).join('\n')}</pre>
         <div className="btn-row">
           <button className="btn" onClick={() => this.setState({ error: null })}>다시 시도</button>
-          <button className="btn ghost" onClick={() => { localStorage.removeItem('studiopass-v1'); location.reload(); }}>데모 데이터로 초기화</button>
+          {IS_DEMO && <button className="btn ghost" onClick={() => { try { localStorage.removeItem('studiopass-v1'); } catch { /* noop */ } location.reload(); }}>데모 데이터로 초기화</button>}
         </div>
       </div>
     );

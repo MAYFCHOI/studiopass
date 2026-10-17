@@ -10,8 +10,9 @@ export const REASONS: Record<ScanFail, string> = {
   EXPIRED: '수강권 기간이 지났어요',
   NO_PASS: '이 수업에 쓸 수강권이 없어요',
   UNKNOWN_COURSE: '수업을 선택해 주세요',
+  INACTIVE_COURSE: '쉬는 중인 수업이에요. 다른 수업을 고르거나 설정에서 다시 켜 주세요',
   NO_COURSE: '먼저 수업을 선택해 주세요',
-  OFFLINE: '인터넷 연결이 끊겼어요. 다시 연결되면 이름으로 출석을 넣어주세요',
+  OFFLINE: '서버에 연결하지 못했어요. 인터넷을 확인하고, 다시 연결되면 이름으로 출석을 넣어주세요',
   ERROR: '출석을 넣지 못했어요. 다시 시도해 주세요',
 };
 export const reasonText = (r: string) => REASONS[r as ScanFail] ?? r;

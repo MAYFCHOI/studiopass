@@ -8,6 +8,17 @@ import { Timetable } from '../components/Timetable';
 import { courseTitle, courseMeta } from '../lib/labels';
 import { IS_DEMO } from '../lib/mode';
 
+/** 사용 중 / 쉬는 중. 쉬는 항목은 오늘·출석 화면과 선택 목록에서 빠지고, 쉬는 수업은 출석을 받지 않는다. 기록은 남는다. */
+function ActiveField({ active, onChange, what }: { active: boolean; onChange: (v: boolean) => void; what: string }) {
+  return (
+    <div className="field"><label>상태</label>
+      <div className="seg"><button aria-pressed={active} onClick={() => onChange(true)}>사용 중</button><button aria-pressed={!active} onClick={() => onChange(false)}>쉬는 중</button></div>
+      {!active && <span className="hint">쉬는 {what}은 오늘·출석 화면과 고르는 목록에서 빠져요. 지난 기록과 정산은 그대로 남아요.</span>}
+    </div>
+  );
+}
+const off = (x: { active?: boolean }) => x.active === false;
+
 export default function Settings() {
   const s = useStore();
   const [edit, setEdit] = useState<{ kind: 'ins'; v: Instructor } | { kind: 'course'; v: Course } | { kind: 'product'; v: Product } | null>(null);
@@ -21,14 +32,24 @@ export default function Settings() {
       <h2>수업 시간표</h2>
       <p className="sub">칸을 누르면 수업을 고칠 수 있어요.</p>
       <Timetable onPick={(c) => setEdit({ kind: 'course', v: { ...c } })} />
+      {s.courses.some(off) && (<>
+        <p className="sub" style={{ marginTop: 12 }}>쉬는 수업 (시간표·출석에서 빠짐)</p>
+        <div className="list">
+          {s.courses.filter(off).map((c) => (
+            <button className="row" key={c.id} style={{ opacity: .6 }} onClick={() => setEdit({ kind: 'course', v: { ...c } })}>
+              <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{courseMeta(c)} · 쉬는 중</div></div>
+            </button>
+          ))}
+        </div>
+      </>)}
       <button className="btn sm" style={{ marginTop: 10 }} onClick={() => setEdit({ kind: 'course', v: { id: newId(), name: '', instructorId: s.instructors[0]?.id ?? '', kind: 'GENERAL', hall: 'HUB', level: 'ALL', weekday: [1], startTime: '19:00', durationMin: 80 } })}>수업 추가</button>
 
       <h2>강사와 정산 기준</h2>
       <div className="list">
         {s.instructors.map((i) => (
-          <button className="row" key={i.id} onClick={() => setEdit({ kind: 'ins', v: { ...i } })}>
+          <button className="row" key={i.id} style={off(i) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'ins', v: { ...i } })}>
             <div className="avatar">{i.name.slice(0, 2)}</div>
-            <div className="main"><div className="t">{i.name}</div><div className="d">{i.crew}</div></div>
+            <div className="main"><div className="t">{i.name}</div><div className="d">{i.crew}{off(i) && ' · 쉬는 중'}</div></div>
             <div className="right">{i.settlementType === 'RATIO' ? <><b>{100 - (i.ratioInstructor ?? 0)}:{i.ratioInstructor ?? 0}</b>학원:강사</> : <><b>{won(i.perSessionFee ?? 0)}</b>1타임</>}</div>
           </button>
         ))}
@@ -39,8 +60,8 @@ export default function Settings() {
       <p className="sub">키오스크 결제 내역의 상품명이 여기 이름과 같으면 수강권이 자동으로 만들어져요.</p>
       <div className="list">
         {s.products.map((p) => (
-          <button className="row" key={p.id} onClick={() => setEdit({ kind: 'product', v: { ...p } })}>
-            <div className="main"><div className="t">{p.name}</div><div className="d">{p.passKind === 'PERIOD' ? `월정액 · ${p.count}회 자유수강 · ${p.periodDays}일` : `${(() => { const c = s.courses.find((x) => x.id === p.courseId); return c ? courseTitle(s, c) + ' 전용' : '정규 수업 아무거나'; })()} · ${p.count}회 · ${p.periodDays}일`}</div></div>
+          <button className="row" key={p.id} style={off(p) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'product', v: { ...p } })}>
+            <div className="main"><div className="t">{p.name}</div><div className="d">{p.passKind === 'PERIOD' ? `월정액 · ${p.count}회 자유수강 · ${p.periodDays}일` : `${(() => { const c = s.courses.find((x) => x.id === p.courseId); return c ? courseTitle(s, c) + ' 전용' : '정규 수업 아무거나'; })()} · ${p.count}회 · ${p.periodDays}일`}{off(p) && ' · 쉬는 중'}</div></div>
             <div className="right num">{maybeWon(p.price)}</div>
           </button>
         ))}
@@ -79,13 +100,14 @@ export default function Settings() {
           ) : (
             <div className="field"><label>1타임 금액</label><input className="input" inputMode="numeric" value={edit.v.perSessionFee ?? 0} onChange={(e) => setEdit({ kind: 'ins', v: { ...edit.v, perSessionFee: Number(e.target.value.replace(/\D/g, '')) } })} /></div>
           )}
+          <ActiveField what="강사" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'ins', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertInstructor(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>
       )}
       {edit?.kind === 'course' && (
         <Sheet onClose={() => setEdit(null)} title={edit.v.name ? '수업 수정' : '수업 추가'}>
           <div className="field"><label>장르 (시간표 검은 띠에 들어가는 글자)</label><input className="input" autoFocus value={edit.v.name} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, name: e.target.value } })} /></div>
-          <div className="field"><label>강사</label><select className="input" value={edit.v.instructorId} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, instructorId: e.target.value } })}>{s.instructors.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></div>
+          <div className="field"><label>강사</label><select className="input" value={edit.v.instructorId} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, instructorId: e.target.value } })}>{s.instructors.filter((i) => !off(i) || i.id === edit.v.instructorId).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></div>
           <div className="grid2">
             <div className="field"><label>홀</label><div className="seg">{(['HUB', 'LAB'] as Hall[]).map((h) => <button key={h} aria-pressed={edit.v.hall === h} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, hall: h } })}>{h}</button>)}</div></div>
             <div className="field"><label>레벨</label><select className="input" value={edit.v.level ?? ''} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, level: e.target.value || undefined } })}><option value="">표시 안 함</option>{['0', '1', '2', '3', '4', 'ALL'].map((l) => <option key={l} value={l}>LV.{l}</option>)}</select></div>
@@ -96,6 +118,7 @@ export default function Settings() {
             <div className="field"><label>길이(분)</label><input className="input" inputMode="numeric" value={edit.v.durationMin} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, durationMin: Number(e.target.value) || 0 } })} /></div>
           </div>
           <div className="field"><label>종류</label><div className="seg"><button aria-pressed={edit.v.kind === 'GENERAL'} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, kind: 'GENERAL' } })}>일반</button><button aria-pressed={edit.v.kind === 'PRO'} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, kind: 'PRO' } })}>전문반</button></div></div>
+          <ActiveField what="수업" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'course', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertCourse(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>
       )}
@@ -103,12 +126,13 @@ export default function Settings() {
         <Sheet onClose={() => setEdit(null)} title={edit.v.name ? '상품 수정' : '상품 추가'}>
           <div className="field"><label>상품명 (키오스크와 동일하게)</label><input className="input" autoFocus value={edit.v.name} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, name: e.target.value } })} /></div>
           <div className="field"><label>종류</label><div className="seg"><button aria-pressed={edit.v.passKind === 'COUNT'} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, passKind: 'COUNT' } })}>회차권</button><button aria-pressed={edit.v.passKind === 'PERIOD'} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, passKind: 'PERIOD', courseId: undefined, periodDays: 30 } })}>전문반 월정액</button></div></div>
-          {edit.v.passKind === 'COUNT' && <div className="field"><label>수업</label><select className="input" value={edit.v.courseId ?? ''} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, courseId: e.target.value || undefined } })}><option value="">정규 수업 아무거나</option>{s.courses.filter((c) => c.kind === 'GENERAL').map((c) => <option key={c.id} value={c.id}>{courseTitle(s, c)} · {courseMeta(c)}</option>)}</select></div>}
+          {edit.v.passKind === 'COUNT' && <div className="field"><label>수업</label><select className="input" value={edit.v.courseId ?? ''} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, courseId: e.target.value || undefined } })}><option value="">정규 수업 아무거나</option>{s.courses.filter((c) => c.kind === 'GENERAL' && (!off(c) || c.id === edit.v.courseId)).map((c) => <option key={c.id} value={c.id}>{courseTitle(s, c)} · {courseMeta(c)}</option>)}</select></div>}
           <div className="grid2">
             <div className="field"><label>{edit.v.passKind === 'PERIOD' ? '월 자유수강 횟수' : '회차'}</label><input className="input" inputMode="numeric" value={edit.v.count} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, count: Number(e.target.value) || 0 } })} /></div>
             <div className="field"><label>유효 기간(일)</label><input className="input" inputMode="numeric" value={edit.v.periodDays} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, periodDays: Number(e.target.value) || 0 } })} /></div>
           </div>
           <div className="field"><label>가격</label><input className="input" inputMode="numeric" value={edit.v.price ?? 0} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, price: Number(e.target.value.replace(/\D/g, '')) } })} /></div>
+          <ActiveField what="상품" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'product', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertProduct(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>
       )}

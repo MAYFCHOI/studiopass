@@ -10,7 +10,7 @@ const DAYS: { wd: number; l: string }[] = [{ wd: 1, l: 'M' }, { wd: 2, l: 'T' },
 export function Timetable({ onPick }: { onPick?: (c: Course) => void }) {
   const courses = useStore((s) => s.courses);
   const [hall, setHall] = useState<Hall>('HUB');
-  const mine = courses.filter((c) => c.hall === hall);
+  const mine = courses.filter((c) => c.hall === hall && c.active !== false); // 쉬는 수업은 시간표에서 뺀다
   const isWeekend = (c: Course) => c.weekday.every((d) => d === 0 || d === 6);
   const week = mine.filter((c) => !isWeekend(c));
   const weekend = mine.filter(isWeekend).sort((a, b) => a.weekday[0] === b.weekday[0] ? a.startTime.localeCompare(b.startTime) : a.weekday[0] === 6 ? -1 : 1);

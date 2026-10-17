@@ -435,3 +435,13 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .notice .btn-row { margin-top: 12px; }
 .notice .btn:not(.primary) { background: var(--paper); color: var(--ink); }
 .notice .btn.primary { background: transparent; color: var(--paper); border: 2px solid var(--paper); }
+
+/* wave R: 불러오기 결과 패널, 출석 처리 중 표시 */
+.result-panel { background: var(--surface); color: var(--ink); border: 2px solid var(--ink); border-radius: 6px; padding: 14px 16px; margin-top: 14px; font-size: 14px; }
+.result-panel .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-weight: 800; }
+.result-panel .head button { font-size: 13px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.result-panel ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.55; }
+.result-panel .rej { max-height: 160px; overflow: auto; font-size: 13px; color: var(--ink-2); }
+.result-panel .btn-row { margin-top: 12px; }
+.scan-busy { position: absolute; left: 12px; top: 12px; z-index: 3; background: var(--ink); color: var(--paper); padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; }
+.preview { font-size: 12px; color: var(--ink-2); margin: 4px 0 12px; line-height: 1.5; }

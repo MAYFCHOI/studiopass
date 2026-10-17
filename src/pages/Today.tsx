@@ -15,7 +15,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const todayAtt = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM-DD') === t);
   const unassigned = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId);
   const wd = dayjs().day();
-  const classes = s.courses.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const live = s.courses.filter((c) => c.active !== false); // 쉬는 수업은 오늘 화면에 안 보인다
+  const classes = live.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
   const expiring = s.passes.filter((p) => p.remaining > 0 && p.validTo >= t && dayjs(p.validTo).diff(dayjs(), 'day') <= 7);
   const monthAtt = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM') === dayjs().format('YYYY-MM'));
   const name = (id: string) => s.members.find((m) => m.id === id)?.name ?? '?';
@@ -25,8 +26,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const closeWelcome = () => { setWelcome(false); try { localStorage.setItem('sp-welcome', '1'); } catch { /* noop */ } };
 
   const DAY_EN = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-  const nextWd = classes.length ? wd : [1, 2, 3, 4, 5, 6, 7].map((d) => (wd + d) % 7).find((d) => s.courses.some((c) => c.weekday.includes(d)));
-  const shown = classes.length ? classes : nextWd === undefined ? [] : s.courses.filter((c) => c.weekday.includes(nextWd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const nextWd = classes.length ? wd : [1, 2, 3, 4, 5, 6, 7].map((d) => (wd + d) % 7).find((d) => live.some((c) => c.weekday.includes(d)));
+  const shown = classes.length ? classes : nextWd === undefined ? [] : live.filter((c) => c.weekday.includes(nextWd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
   const count = (c: Course) => todayAtt.filter((a) => a.courseId === c.id).length;
 
   return (

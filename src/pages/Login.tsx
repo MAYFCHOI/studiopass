@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store';
 import logoMark from '../assets/logo-mark.png';
 
-const ERR = { INVALID: '아이디나 비밀번호가 맞지 않아요', LIMIT: '여러 번 틀려서 10분 동안 막혔어요', BUSY: '로그인이 몰려 있어요. 잠시 후 다시 시도해 주세요' } as const;
+const ERR = { INVALID: '아이디나 비밀번호가 맞지 않아요', LIMIT: '여러 번 틀려서 10분 동안 막혔어요', BUSY: '로그인이 몰려 있어요. 잠시 후 다시 시도해 주세요', OFFLINE: '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요' } as const;
 
 export default function Login() {
   const login = useStore((s) => s.login);
@@ -14,7 +14,10 @@ export default function Login() {
     setBusy(true); setErr(null);
     const r = await login(id.trim(), pw);
     setBusy(false);
-    if (!r.ok && r.error) { setErr(ERR[r.error]); setPw(''); }
+    if (!r.ok) {
+      setErr(ERR[r.error ?? 'OFFLINE']);
+      if (r.error === 'INVALID') setPw(''); // 연결 문제면 비밀번호는 그대로 두고 다시 누르게
+    }
   };
   return (
     <div className="login">
