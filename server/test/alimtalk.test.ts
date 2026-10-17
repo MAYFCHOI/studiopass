@@ -127,7 +127,7 @@ describe('api wiring', () => {
     const { req, login } = mk({ alimtalk: ON, fetchImpl: f }); const c = await login();
     const m = await (await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c)).json();
     expect(calls).toHaveLength(0);
-    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1 });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
     await flush(); await flush();
     expect(calls).toHaveLength(1);
     const msg = JSON.parse(String(calls[0].init.body)).messages[0];
@@ -139,11 +139,39 @@ describe('api wiring', () => {
     expect(db.prepare('select member_id, channel, kind, status from messages').all()).toEqual([{ member_id: m.id, channel: 'ALIMTALK', kind: 'LINK', status: 'SENT' }]);
   });
 
+  it('automatic send on a new pass is skipped when the member already has a link (no rotation)', async () => {
+    const { f, calls } = fakeFetch();
+    const { req, login } = mk({ alimtalk: ON, fetchImpl: f }); const c = await login();
+    const m = await (await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c)).json();
+    const { url } = await (await req(`/members/${m.id}/link`, { method: 'POST' }, c)).json();
+    const token = url.split('/m/')[1];
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toMatchObject({ added: 1, matched: 1 });
+    await flush(); await flush();
+    expect(calls).toHaveLength(0);
+    expect(db.prepare('select count(*) n from messages').get()).toEqual({ n: 0 });
+    expect((await req('/public/m/' + token)).status).toBe(200);
+  });
+
+  it('first automatic send issues the first link; a second pass later sends nothing', async () => {
+    const { f, calls } = fakeFetch();
+    const { req, login } = mk({ alimtalk: ON, fetchImpl: f }); const c = await login();
+    const m = await (await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c)).json();
+    expect(db.prepare('select count(*) n from member_links where member_id=?').get(m.id)).toEqual({ n: 0 });
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c);
+    await flush(); await flush();
+    expect(calls).toHaveLength(1);
+    const token = JSON.parse(String(calls[0].init.body)).messages[0].kakaoOptions.variables['#{링크}'].split('/m/')[1];
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k2', '01011112222')] } }, c);
+    await flush(); await flush();
+    expect(calls).toHaveLength(1);
+    expect((await req('/public/m/' + token)).status).toBe(200);
+  });
+
   it('a failing send does not affect the import and is recorded as FAILED', async () => {
     const boom = (async () => { throw new TypeError('fetch failed'); }) as typeof fetch;
     const { req, login } = mk({ alimtalk: ON, fetchImpl: boom }); const c = await login();
     await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c);
-    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1 });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
     await flush(); await flush();
     expect(db.prepare('select count(*) n from passes').get()).toEqual({ n: 1 });
     expect(db.prepare('select status, error from messages').all()).toEqual([{ status: 'FAILED', error: 'NETWORK' }]);

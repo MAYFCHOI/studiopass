@@ -16,6 +16,9 @@ export async function body(c: Context): Promise<Record<string, any> | null> {
 }
 export const str = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 export const optStr = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+/** Absent, null, or a string of at most n characters. */
+export const maxLen = (v: unknown, n: number) => v === undefined || v === null || (typeof v === 'string' && v.length <= n);
+export const LIMITS = { name: 50, memo: 500, productName: 100, payerName: 50, password: 200, loginId: 50 } as const;
 export const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 export const int = (v: unknown, min = 0): v is number => Number.isInteger(v) && (v as number) >= min;
 export const ownerOnly: MiddlewareHandler<AppEnv> = async (c, next) => {

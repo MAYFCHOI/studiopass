@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from '../src/db.js';
@@ -191,5 +191,87 @@ describe('static', () => {
     expect(await (await app.request('/members')).text()).toBe('INDEX');
     expect(await (await app.request('/a.js')).text()).toBe('JS');
     expect((await app.request('/api/nope')).status).toBe(401);
+  });
+});
+
+describe('final review fixes', () => {
+  it('assign re-run creates the pass for a payment whose member matched but product did not', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '마', phone: '01055556666' } }, o)).json();
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('u1', '01055556666', '키오스크 4회 이용권')] } }, o);
+    const p = (await (await req('/bootstrap', {}, o)).json()).payments.find((x: any) => x.externalId === 'u1');
+    expect(p).toMatchObject({ memberId: m.id, status: 'APPROVED' });
+    expect(p.passId).toBeUndefined();
+    expect((await (await req(`/payments/${p.id}/assign`, { method: 'POST', body: { memberId: m.id } }, o)).json()).passId).toBeNull();
+    expect((await req('/products/p_four', { method: 'PUT', body: { name: '키오스크 4회 이용권' } }, o)).status).toBe(200);
+    expect((await (await req(`/payments/${p.id}/assign`, { method: 'POST', body: { memberId: m.id } }, o)).json()).passId).toBeTruthy();
+    expect(db.prepare('select count(*) n from passes where member_id=?').get(m.id).n).toBe(1);
+  });
+  it('bootstrap keeps an old payment that has a member but no pass', async () => {
+    const o = await login('owner');
+    db.prepare("insert into payments(id,source,paid_at,amount,payer_phone,product_name,status,member_id,created_at) values('old1','KIOSK','2026-05-01T00:00:00Z',1000,'0101','x','APPROVED',null,'x')").run();
+    const m = db.prepare('select id from members limit 1').get() ?? (await (await req('/members', { method: 'POST', body: { name: '바', phone: '01011110000' } }, o)).json());
+    db.prepare("update payments set member_id=? where id='old1'").run(m.id);
+    expect((await (await req('/bootstrap', {}, o)).json()).payments.some((x: any) => x.id === 'old1')).toBe(true);
+  });
+  it('PUT with null clears optional fields (product courseId, course level)', async () => {
+    const o = await login('owner');
+    const co = db.prepare("select id from courses where kind='GENERAL' and level is not null limit 1").get();
+    expect(await (await req('/products/p_one', { method: 'PUT', body: { courseId: co.id } }, o)).json()).toMatchObject({ courseId: co.id });
+    const cleared = await (await req('/products/p_one', { method: 'PUT', body: { courseId: null } }, o)).json();
+    expect(cleared.courseId).toBeUndefined();
+    expect(db.prepare("select course_id from products where id='p_one'").get().course_id).toBeNull();
+    expect((await (await req(`/courses/${co.id}`, { method: 'PUT', body: { level: null } }, o)).json()).level).toBeUndefined();
+    expect(db.prepare('select level from courses where id=?').get(co.id).level).toBeNull();
+  });
+  it('settlement detail returns rows of a month older than the 62-day bootstrap window', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '사공', phone: '01033334444' } }, o)).json();
+    const co = db.prepare("select id, instructor_id from courses where kind='GENERAL' limit 1").get();
+    db.prepare("insert into payments(id,source,paid_at,amount,payer_name,payer_phone,product_name,status,member_id,created_at) values('pj','KIOSK','2026-06-30T16:00:00Z',180000,'사공','01033334444','정규 클래스 8회권','APPROVED',?,'x')").run(m.id);
+    db.prepare("insert into passes(id,member_id,product_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('sj',?,'p_eight','COUNT',8,7,'2026-07-01','2026-08-30','pj',180000,'x')").run(m.id);
+    db.prepare("insert into attendances(id,member_id,pass_id,course_id,instructor_id,attended_at,attended_on) values('aj',?,'sj',?,?,'2026-07-02T11:00:00Z','2026-07-02')").run(m.id, co.id, co.instructor_id);
+    const boot = await (await req('/bootstrap', {}, o)).json();
+    expect(boot.attendances.some((a: any) => a.id === 'aj')).toBe(false);
+    const d = await (await req('/settlement/detail?month=2026-07', {}, o)).json();
+    expect(d.attendances).toHaveLength(1);
+    expect(d.attendances[0]).toMatchObject({ member: '사공', passKind: 'COUNT', value: 22500 });
+    expect(d.attendances[0].course).toBeTruthy(); expect(d.attendances[0].instructor).toBeTruthy();
+    // 2026-06-30T16:00Z is 2026-07-01 01:00 KST, so it belongs to July
+    expect(d.payments).toEqual([expect.objectContaining({ member: '사공', amount: 180000, status: 'APPROVED', productName: '정규 클래스 8회권' })]);
+    expect((await (await req('/settlement/detail?month=2026-06', {}, o)).json()).payments).toHaveLength(0);
+    expect((await req('/settlement/detail?month=2026-13', {}, o)).status).toBe(400);
+    expect((await req('/settlement/detail?month=2026-07', {}, await login('desk'))).status).toBe(403);
+  });
+  it('rejects bodies over 2MB with 413 TOO_LARGE', async () => {
+    const o = await login('owner');
+    const big = 'x'.repeat(2 * 1024 * 1024 + 10);
+    const r = await app.request('/api/members', { method: 'POST', headers: { 'content-type': 'application/json', origin: ORIGIN, cookie: o }, body: JSON.stringify({ name: big }) });
+    expect(r.status).toBe(413);
+    expect(await r.json()).toEqual({ error: 'TOO_LARGE' });
+  });
+  it('caps password and free-text lengths', async () => {
+    const long = 'p'.repeat(201);
+    expect((await req('/auth/login', { method: 'POST', body: { loginId: 'owner', password: long } })).status).toBe(400);
+    const o = await login('owner');
+    expect((await req('/staff', { method: 'POST', body: { loginId: 'd2', name: '둘', password: long } }, o)).status).toBe(400);
+    expect((await req('/staff', { method: 'POST', body: { loginId: 'd2', name: '둘', password: 'p'.repeat(200) } }, o)).status).toBe(200);
+    expect((await req('/members', { method: 'POST', body: { name: '가'.repeat(51) } }, o)).status).toBe(400);
+    expect((await req('/members', { method: 'POST', body: { name: '가', memo: 'm'.repeat(501) } }, o)).status).toBe(400);
+    expect((await req('/payments', { method: 'POST', body: { amount: 1000, productName: 'p'.repeat(101) } }, o)).status).toBe(400);
+    expect((await req('/payments/import', { method: 'POST', body: { rows: [{ ...kiosk('L1', '010'), payerName: 'n'.repeat(51) }] } }, o)).status).toBe(400);
+  });
+  it('static cache headers and member page referrer policy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sp-static-'));
+    mkdirSync(join(dir, 'assets'));
+    writeFileSync(join(dir, 'index.html'), 'INDEX'); writeFileSync(join(dir, 'member.html'), 'MEMBER'); writeFileSync(join(dir, 'assets', 'a-123.js'), 'JS');
+    app = createApp({ db, secureCookies: false, allowedOrigin: ORIGIN, staticDir: dir });
+    const mpage = await app.request('/m/abc');
+    expect(mpage.headers.get('cache-control')).toBe('no-cache');
+    expect(mpage.headers.get('referrer-policy')).toBe('no-referrer');
+    expect((await app.request('/members')).headers.get('cache-control')).toBe('no-cache');
+    expect((await app.request('/')).headers.get('cache-control')).toBe('no-cache');
+    expect((await app.request('/assets/a-123.js')).headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect((await app.request('/members')).headers.get('referrer-policy')).toBeNull();
   });
 });

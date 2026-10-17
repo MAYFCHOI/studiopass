@@ -5,6 +5,11 @@ import { openDb } from './db.js';
 import { seedIfEmpty } from './domain/seed.js';
 import { createApp } from './app.js';
 import { loadAlimtalkConfig } from './notify/alimtalk.js';
+if (process.env.NODE_ENV === 'production' && !process.env.SP_ORIGIN?.trim()) {
+  // Without it the CSRF origin check is off and member links / alimtalk cannot be built.
+  console.error('studiopass: SP_ORIGIN is required when NODE_ENV=production (e.g. SP_ORIGIN=https://studio.example.com). Not starting.');
+  process.exit(1);
+}
 const file = process.env.SP_DB ?? 'data/studiopass.db';
 mkdirSync(dirname(file), { recursive: true });
 const db = openDb(file); seedIfEmpty(db);

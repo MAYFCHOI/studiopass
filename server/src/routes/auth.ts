@@ -4,7 +4,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { createSession, getSession, deleteSession } from '../auth/sessions.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { LoginLimiter } from '../auth/rateLimit.js';
-import { type AppEnv, type Deps, COOKIE, body, str } from './common.js';
+import { type AppEnv, type Deps, COOKIE, LIMITS, body, str } from './common.js';
 
 const PUBLIC = [/^\/api\/auth\/login$/, /^\/api\/healthz$/, /^\/api\/public\//];
 export const sessionMiddleware = (d: Deps): MiddlewareHandler<AppEnv> => async (c, next) => {
@@ -33,7 +33,7 @@ export function authRoutes(d: Deps) {
   const limiter = new LoginLimiter();
   r.post('/login', async (c) => {
     const b = await body(c);
-    if (!b || !str(b.loginId) || typeof b.password !== 'string') return c.json({ error: 'BAD_REQUEST' }, 400);
+    if (!b || !str(b.loginId) || b.loginId.length > LIMITS.loginId || typeof b.password !== 'string' || b.password.length > LIMITS.password) return c.json({ error: 'BAD_REQUEST' }, 400);
     const key = `${clientIp(c)}|${b.loginId}`;
     if (!limiter.hit(key)) return c.json({ error: 'LIMIT' }, 429);
     const s = d.db.prepare('select id, name, role, pw_hash from staff where login_id=? and active=1').get(b.loginId) as { id: string; name: string; role: 'OWNER' | 'DESK'; pw_hash: string } | undefined;

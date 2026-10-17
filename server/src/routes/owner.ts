@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { newId } from '../util.js';
 import { audit } from '../audit.js';
-import { settle } from '../domain/settlement.js';
+import { settle, settlementDetail } from '../domain/settlement.js';
 import { createStaff } from '../auth/sessions.js';
 import { toInstructor, toCourse, toProduct } from '../serialize.js';
-import { type AppEnv, type Deps, ownerOnly, body, bad, notFound, str, optStr, int } from './common.js';
+import { type AppEnv, type Deps, ownerOnly, body, bad, notFound, str, optStr, int, maxLen, LIMITS } from './common.js';
 
 const bool = (v: unknown) => v === undefined || typeof v === 'boolean';
 const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, role: r.role, active: !!r.active, createdAt: r.created_at });
@@ -13,7 +13,7 @@ const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, rol
 export function ownerRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db;
   // Guard by path, not '*': a '*' middleware in a sub-app mounted at /api would also catch every other /api route.
-  for (const path of ['/settlement', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*']) r.use(path, ownerOnly);
+  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*']) r.use(path, ownerOnly);
 
   r.get('/settlement', (c) => {
     const month = c.req.query('month') ?? '';
@@ -21,12 +21,18 @@ export function ownerRoutes(d: Deps) {
     return c.json(settle(db, month));
   });
 
+  r.get('/settlement/detail', (c) => {
+    const month = c.req.query('month') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    return c.json(settlementDetail(db, month));
+  });
+
   r.put('/instructors/:id', async (c) => {
     const b = await body(c); const id = c.req.param('id');
     if (!b) return bad(c);
     const cur = db.prepare('select * from instructors where id=?').get(id) as any;
     const v = { ...(cur ? toInstructor(cur, 'OWNER') : {}), ...b } as any;
-    if (!str(v.name) || !optStr(v.crew) || !['RATIO', 'PER_SESSION'].includes(v.settlementType) || !int(v.ratioInstructor ?? 50) || v.ratioInstructor > 100 || !int(v.perSessionFee ?? 0) || !bool(v.active)) return bad(c);
+    if (!str(v.name) || !maxLen(v.name, LIMITS.name) || !optStr(v.crew) || !maxLen(v.crew, LIMITS.name) || !['RATIO', 'PER_SESSION'].includes(v.settlementType) || !int(v.ratioInstructor ?? 50) || v.ratioInstructor > 100 || !int(v.perSessionFee ?? 0) || !bool(v.active)) return bad(c);
     db.prepare('insert into instructors(id,name,genres,settlement_type,ratio_instructor,per_session_fee,active) values(?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name, genres=excluded.genres, settlement_type=excluded.settlement_type, ratio_instructor=excluded.ratio_instructor, per_session_fee=excluded.per_session_fee, active=excluded.active')
       .run(id, v.name.trim(), v.crew ?? '', v.settlementType, v.ratioInstructor ?? 50, v.perSessionFee ?? 0, v.active === false ? 0 : 1);
     audit(db, c.get('me').staffId, cur ? 'instructor.update' : 'instructor.create', 'instructor', id, b);
@@ -39,7 +45,7 @@ export function ownerRoutes(d: Deps) {
     const cur = db.prepare('select * from courses where id=?').get(id) as any;
     const v = { ...(cur ? toCourse(cur) : {}), ...b } as any;
     const wd = Array.isArray(v.weekday) ? v.weekday : [v.weekday];
-    if (!str(v.name) || !str(v.instructorId) || !['GENERAL', 'PRO'].includes(v.kind) || !['HUB', 'LAB'].includes(v.hall) || !optStr(v.level) || !optStr(v.note)
+    if (!str(v.name) || !maxLen(v.name, LIMITS.name) || !str(v.instructorId) || !['GENERAL', 'PRO'].includes(v.kind) || !['HUB', 'LAB'].includes(v.hall) || !optStr(v.level) || !optStr(v.note) || !maxLen(v.note, LIMITS.memo)
       || wd.length !== 1 || !int(wd[0]) || wd[0] > 6 || typeof v.startTime !== 'string' || !/^\d{2}:\d{2}$/.test(v.startTime) || !int(v.durationMin, 1) || !bool(v.active)) return bad(c);
     if (!db.prepare('select 1 from instructors where id=?').get(v.instructorId)) return bad(c);
     db.prepare('insert into courses(id,hall,name,instructor_id,kind,level,note,weekday,start_time,duration_min,active) values(?,?,?,?,?,?,?,?,?,?,?) on conflict(id) do update set hall=excluded.hall, name=excluded.name, instructor_id=excluded.instructor_id, kind=excluded.kind, level=excluded.level, note=excluded.note, weekday=excluded.weekday, start_time=excluded.start_time, duration_min=excluded.duration_min, active=excluded.active')
@@ -53,7 +59,7 @@ export function ownerRoutes(d: Deps) {
     if (!b) return bad(c);
     const cur = db.prepare('select * from products where id=?').get(id) as any;
     const v = { ...(cur ? toProduct(cur, 'OWNER') : {}), ...b } as any;
-    if (!str(v.name) || !optStr(v.courseId) || !['COUNT', 'PERIOD'].includes(v.passKind) || !int(v.count, 1) || !int(v.periodDays, 1) || !int(v.price) || !bool(v.active)) return bad(c);
+    if (!str(v.name) || !maxLen(v.name, LIMITS.productName) || !optStr(v.courseId) || !['COUNT', 'PERIOD'].includes(v.passKind) || !int(v.count, 1) || !int(v.periodDays, 1) || !int(v.price) || !bool(v.active)) return bad(c);
     if (v.courseId && !db.prepare('select 1 from courses where id=?').get(v.courseId)) return bad(c);
     const clash = db.prepare('select id from products where name=? and id<>?').get(v.name.trim(), id);
     if (clash) return c.json({ error: 'DUPLICATE_NAME' }, 409);
@@ -87,7 +93,7 @@ export function ownerRoutes(d: Deps) {
 
   r.post('/staff', async (c) => {
     const b = await body(c);
-    if (!b || !str(b.loginId) || !str(b.name) || typeof b.password !== 'string' || (b.role !== undefined && b.role !== 'DESK' && b.role !== 'OWNER')) return bad(c);
+    if (!b || !str(b.loginId) || !maxLen(b.loginId, LIMITS.loginId) || !str(b.name) || !maxLen(b.name, LIMITS.name) || typeof b.password !== 'string' || b.password.length > LIMITS.password || (b.role !== undefined && b.role !== 'DESK' && b.role !== 'OWNER')) return bad(c);
     if (b.password.length < 8) return c.json({ error: 'WEAK_PASSWORD' }, 400);
     if (db.prepare('select 1 from staff where login_id=?').get(b.loginId.trim())) return c.json({ error: 'LOGIN_TAKEN' }, 409);
     const id = await createStaff(db, { loginId: b.loginId.trim(), name: b.name.trim(), role: b.role ?? 'DESK', password: b.password });
@@ -98,7 +104,7 @@ export function ownerRoutes(d: Deps) {
   // Rename or (de)activate. Deactivation also drops that account's sessions; an owner cannot deactivate themself.
   r.patch('/staff/:id', async (c) => {
     const b = await body(c); const id = c.req.param('id');
-    if (!b || (b.name !== undefined && !str(b.name)) || !bool(b.active)) return bad(c);
+    if (!b || (b.name !== undefined && !(str(b.name) && maxLen(b.name, LIMITS.name))) || !bool(b.active)) return bad(c);
     const cur = db.prepare('select * from staff where id=?').get(id) as any;
     if (!cur) return notFound(c);
     if (b.active === false && id === c.get('me').staffId) return c.json({ error: 'SELF' }, 400);

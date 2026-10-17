@@ -24,7 +24,7 @@ export function bootstrapRoutes(d: Deps) {
       courses: db.prepare('select * from courses order by weekday, start_time, hall').all().map(toCourse),
       products: db.prepare('select * from products order by rowid').all().map((x) => toProduct(x, role)),
       passes: db.prepare('select * from passes order by created_at').all().map((x) => toPass(x, role)),
-      payments: db.prepare('select * from payments where paid_at >= ? or member_id is null order by paid_at desc').all(sinceIso).map((x) => toPayment(x, role)),
+      payments: db.prepare("select * from payments where paid_at >= ? or member_id is null or (pass_id is null and status='APPROVED') order by paid_at desc").all(sinceIso).map((x) => toPayment(x, role)),
       attendances: db.prepare('select * from attendances where attended_on >= ? order by attended_at desc').all(sinceDay).map(toAttendance),
       tiers: tiers.map((t) => ({ name: t.name, minCount: t.min_count })),
     });

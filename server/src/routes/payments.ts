@@ -4,11 +4,11 @@ import { audit } from '../audit.js';
 import { type PaymentInput, ingestPayments, assignPayment, cancelPayment, PassInUseError } from '../domain/payments.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
-import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, num } from './common.js';
+import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, num, maxLen, LIMITS } from './common.js';
 
 const MAX_ROWS = 2000;
-const validRow = (r: any): r is PaymentInput => !!r && typeof r === 'object' && (r.source === 'KIOSK' || r.source === 'MANUAL') && str(r.paidAt) && !Number.isNaN(Date.parse(r.paidAt)) && num(r.amount) && str(r.productName)
-  && optStr(r.externalId) && optStr(r.payerName) && (optStr(r.payerPhone) || typeof r.payerPhone === 'number') && (r.status === undefined || r.status === 'APPROVED' || r.status === 'CANCELLED');
+const validRow = (r: any): r is PaymentInput => !!r && typeof r === 'object' && (r.source === 'KIOSK' || r.source === 'MANUAL') && str(r.paidAt) && !Number.isNaN(Date.parse(r.paidAt)) && num(r.amount) && str(r.productName) && maxLen(r.productName, LIMITS.productName)
+  && optStr(r.externalId) && maxLen(r.externalId, 100) && optStr(r.payerName) && maxLen(r.payerName, LIMITS.payerName) && (optStr(r.payerPhone) || typeof r.payerPhone === 'number') && (r.status === undefined || r.status === 'APPROVED' || r.status === 'CANCELLED');
 
 export function paymentRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db; const onPass = passNotifier(d);
@@ -24,7 +24,7 @@ export function paymentRoutes(d: Deps) {
   // Manual single entry. Linked to memberId when given, otherwise to the only member with the payer's phone (same rule as import).
   r.post('/payments', async (c) => {
     const b = await body(c);
-    if (!b || !num(b.amount) || !str(b.productName) || !optStr(b.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt))))) return bad(c);
+    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt))))) return bad(c);
     if (b.memberId && !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.payerPhone);
     const id = db.transaction(() => {

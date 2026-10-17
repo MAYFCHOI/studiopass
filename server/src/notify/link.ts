@@ -19,6 +19,8 @@ export type OnPass = (memberId: string, passId: string, staffId: string | null) 
  * 수강권이 새로 생겼을 때 부르는 훅. 바로 보내지 않고 microtask 로 미룬다: better-sqlite3 트랜잭션은 동기라서
  * microtask 가 돌 때는 바깥 트랜잭션이 이미 커밋(또는 롤백)돼 있다. 롤백됐으면 수강권이 없으니 보내지 않는다.
  * 같은 묶음에서 한 회원에게 수강권이 여러 개 생겨도 한 번만 보낸다. 발송 오류는 삼키고 코드만 로그.
+ * 자동 발송은 회원에게 아직 링크가 없을 때(첫 링크 발급)만 한다. 이미 링크가 있으면 보내지 않는다:
+ * 보내면 링크를 새로 발급해 회원이 쓰던 링크(홈 화면 바로가기 포함)가 막히기 때문이다. 회원 상세의 버튼은 그대로 재발급한다.
  */
 export function passNotifier(d: Deps): OnPass | undefined {
   if (!alimtalkOn(d)) return undefined;
@@ -31,6 +33,7 @@ export function passNotifier(d: Deps): OnPass | undefined {
         void (async () => {
           for (const [mid, p] of batch) {
             if (!d.db.prepare('select 1 from passes where id=?').get(p.passId)) continue;
+            if (d.db.prepare('select 1 from member_links where member_id=?').get(mid)) continue;
             await sendLinkAlimtalk(d, mid, p.staffId).catch((e) => console.error('alimtalk hook error:', e instanceof Error ? e.name : 'unknown'));
           }
         })();

@@ -32,9 +32,13 @@ export function assignPayment(db: Db, paymentId: string, memberId: string, staff
     return { passId };
   })();
 }
+/**
+ * 키오스크 행 적재. 같은 승인번호가 다시 오면 중복으로 센다. 단, 나중 행이 취소(환불)이고 저장된 결제가 승인 상태면
+ * 그 결제를 취소한다(cancelled). 수강권이 이미 출석에 쓰였으면 승인 상태로 두고 cancelFailed 로 센다.
+ */
 export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | null, onPass?: (memberId: string, passId: string, staffId: string | null) => void) {
   return db.transaction(() => {
-    let added = 0, dup = 0, matched = 0;
+    let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0;
     const seen = new Set<string>();
     for (const r of rows) {
       const phone = normalizePhone(r.payerPhone);
@@ -42,7 +46,17 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       const exists = seen.has(key) || (r.externalId
         ? db.prepare('select 1 from payments where external_id=?').get(r.externalId)
         : db.prepare('select 1 from payments where external_id is null and payer_phone=? and paid_at=? and amount=?').get(phone, r.paidAt, r.amount));
-      if (exists) { dup++; continue; }
+      if (exists) {
+        const stored = r.status === 'CANCELLED' && r.externalId
+          ? db.prepare("select id from payments where external_id=? and status='APPROVED'").get(r.externalId) as { id: string } | undefined
+          : undefined;
+        if (!stored) { dup++; continue; }
+        try { cancelPayment(db, stored.id, staffId); cancelled++; } catch (e) {
+          if (!(e instanceof PassInUseError)) throw e;
+          cancelFailed++;
+        }
+        continue;
+      }
       seen.add(key);
       const id = newId();
       db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,raw_json,created_by,created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -52,7 +66,7 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[];
       if (m.length === 1) { assignPayment(db, id, m[0].id, staffId, onPass); matched++; }
     }
-    return { added, dup, matched };
+    return { added, dup, matched, cancelled, cancelFailed };
   })();
 }
 export function cancelPayment(db: Db, paymentId: string, staffId: string | null) {

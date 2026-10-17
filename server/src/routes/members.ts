@@ -9,7 +9,7 @@ import { parseQr } from '../qr.js';
 import { issueLink } from '../links.js';
 import { toMember } from '../serialize.js';
 import { alimtalkOn, passNotifier, sendLinkAlimtalk } from '../notify/link.js';
-import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr } from './common.js';
+import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, maxLen, LIMITS } from './common.js';
 
 const memberOut = (db: Db, id: string) => {
   const m = db.prepare('select * from members where id=?').get(id) as any;
@@ -23,7 +23,7 @@ export function memberRoutes(d: Deps) {
 
   r.post('/members', async (c) => {
     const b = await body(c);
-    if (!b || !str(b.name) || !optStr(b.phone) || !optStr(b.memo)) return bad(c);
+    if (!b || !str(b.name) || !maxLen(b.name, LIMITS.name) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)) return bad(c);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.phone);
     const year = kstDate(clock(d)).slice(0, 4);
     const { id, assigned } = db.transaction(() => {
@@ -44,7 +44,7 @@ export function memberRoutes(d: Deps) {
 
   r.patch('/members/:id', async (c) => {
     const b = await body(c); const id = c.req.param('id');
-    if (!b || (b.name !== undefined && !str(b.name)) || !optStr(b.phone) || !optStr(b.memo)) return bad(c);
+    if (!b || (b.name !== undefined && !(str(b.name) && maxLen(b.name, LIMITS.name))) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)) return bad(c);
     const m = db.prepare('select * from members where id=?').get(id) as any;
     if (!m) return notFound(c);
     db.prepare('update members set name=?, phone=?, memo=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, b.phone !== undefined ? normalizePhone(b.phone) : m.phone, b.memo !== undefined ? b.memo : m.memo, id);
