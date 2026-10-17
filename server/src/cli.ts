@@ -5,8 +5,9 @@ import { openDb } from './db.js';
 import { seedIfEmpty } from './domain/seed.js';
 import { createStaff } from './auth/sessions.js';
 import { hashPassword } from './auth/password.js';
+import { audit } from './audit.js';
 
-const USAGE = 'usage: npm run cli -- create-owner <loginId> <name> | create-desk <loginId> <name> | reset-password <loginId>\npassword: env SP_PASSWORD or one line on stdin';
+const USAGE = 'usage: npm run cli -- create-owner <loginId> <name> | create-desk <loginId> <name> | reset-password <loginId> | deactivate <loginId> | activate <loginId>\npassword (create/reset only): env SP_PASSWORD or one line on stdin\ndeactivate logs the account out everywhere and blocks login; activate allows login again';
 const fail = (msg: string): never => { console.error(msg); process.exit(1); };
 
 async function readPassword() {
@@ -19,14 +20,26 @@ async function readPassword() {
 
 async function main() {
   const [cmd, a, b] = process.argv.slice(2);
-  const known = ['create-owner', 'create-desk', 'reset-password'];
+  const known = ['create-owner', 'create-desk', 'reset-password', 'deactivate', 'activate'];
   if (!cmd || !known.includes(cmd)) fail(`unknown command: ${cmd ?? '(none)'}\n${USAGE}`);
-  const needed = cmd === 'reset-password' ? 1 : 2;
+  const needed = ['reset-password', 'deactivate', 'activate'].includes(cmd) ? 1 : 2;
   if (!a || (needed === 2 && !b)) fail(`missing arguments for ${cmd}\n${USAGE}`);
   const file = process.env.SP_DB ?? 'data/studiopass.db';
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = openDb(file);
   seedIfEmpty(db);
+  if (cmd === 'deactivate' || cmd === 'activate') {
+    const row = db.prepare('select id from staff where login_id=?').get(a) as { id: string } | undefined;
+    if (!row) fail(`no such staff: ${a}`);
+    const on = cmd === 'activate';
+    db.transaction(() => {
+      db.prepare('update staff set active=? where id=?').run(on ? 1 : 0, row!.id);
+      if (!on) db.prepare('delete from sessions where staff_id=?').run(row!.id);
+      audit(db, null, 'staff.update', 'staff', row!.id, { active: on, via: 'cli' });
+    })();
+    console.log(on ? `${a} can log in again` : `${a} deactivated; sessions cleared`);
+    return;
+  }
   const password = await readPassword();
   if (password.length < 8) fail('password must be at least 8 characters');
   if (cmd === 'reset-password') {
@@ -36,6 +49,7 @@ async function main() {
     db.transaction(() => {
       db.prepare('update staff set pw_hash=? where login_id=?').run(pw, a);
       db.prepare('delete from sessions where staff_id=?').run(row!.id);
+      audit(db, null, 'staff.password_reset', 'staff', row!.id, { via: 'cli' });
     })();
     console.log(`password reset for ${a}; sessions cleared`);
     return;
