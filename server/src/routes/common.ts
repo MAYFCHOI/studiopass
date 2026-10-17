@@ -1,0 +1,23 @@
+import type { Context, MiddlewareHandler } from 'hono';
+import type { Db } from '../db.js';
+import type { Role } from '../serialize.js';
+export type Deps = { db: Db; secureCookies: boolean; allowedOrigin: string | null; staticDir?: string; now?: () => Date };
+export type Me = { staffId: string; role: Role; name: string; loginId: string };
+export type AppEnv = { Variables: { me: Me } };
+export const COOKIE = 'sp_session';
+export const clock = (d: Deps) => (d.now ? d.now() : new Date());
+export const bad = (c: Context) => c.json({ error: 'BAD_REQUEST' }, 400);
+export const notFound = (c: Context) => c.json({ error: 'NOT_FOUND' }, 404);
+/** Parses a JSON object body; null when the body is missing, malformed or not an object. */
+export async function body(c: Context): Promise<Record<string, any> | null> {
+  const b = await c.req.json().catch(() => null);
+  return b && typeof b === 'object' && !Array.isArray(b) ? b : null;
+}
+export const str = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+export const optStr = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+export const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+export const int = (v: unknown, min = 0): v is number => Number.isInteger(v) && (v as number) >= min;
+export const ownerOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
+  if (c.get('me').role !== 'OWNER') return c.json({ error: 'OWNER_ONLY' }, 403);
+  await next();
+};

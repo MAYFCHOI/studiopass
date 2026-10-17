@@ -1,0 +1,13 @@
+import { serve } from '@hono/node-server';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { openDb } from './db.js';
+import { seedIfEmpty } from './domain/seed.js';
+import { createApp } from './app.js';
+const file = process.env.SP_DB ?? 'data/studiopass.db';
+mkdirSync(dirname(file), { recursive: true });
+const db = openDb(file); seedIfEmpty(db);
+db.prepare('delete from sessions where expires_at < ?').run(new Date().toISOString());
+const app = createApp({ db, secureCookies: process.env.NODE_ENV === 'production', allowedOrigin: process.env.SP_ORIGIN ?? null, staticDir: process.env.SP_STATIC });
+serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8787), hostname: '0.0.0.0' });
+console.log('studiopass api listening');
