@@ -100,5 +100,22 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $DESK" "$ORIGIN/api/s
 CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $OWNER" "$ORIGIN/api/settlement?month=$(date +%Y-%m)")"
 [ "$CODE" = 200 ] && pass "owner /api/settlement -> 200" || fail "owner /api/settlement" "got $CODE"
 
+# Access log, erasure, static 404 (wave S)
+R="$(api "$OWNER" GET "/api/audit?from=$(TZ=Asia/Seoul date +%Y-%m-%d)&to=$(TZ=Asia/Seoul date +%Y-%m-%d)")"
+check "audit: owner login and settlement view recorded with ip" '([.items[]|select(.action=="auth.login" and .loginId=="owner" and .ip!=null)]|length)>=1 and ([.items[]|select(.action=="settlement.view")]|length)>=1' "$R"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: $DESK" "$ORIGIN/api/audit")"
+[ "$CODE" = 403 ] && pass "desk /api/audit -> 403" || fail "desk /api/audit" "got $CODE"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Cookie: $DESK" -H "Origin: $ORIGIN" "$ORIGIN/api/members/$MID/erase")"
+[ "$CODE" = 403 ] && pass "desk member erase -> 403" || fail "desk member erase" "got $CODE"
+R="$(api "$OWNER" POST "/api/members/$MID/erase")"
+check "owner erases member: name replaced, phone cleared" '.name=="삭제된 회원" and .phone=="" and .erased==true' "$R"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$ORIGIN/api/public/m/$TOKEN")"
+[ "$CODE" = 404 ] && pass "erased member's public link -> 404" || fail "erased member's public link" "got $CODE"
+R="$(api "$OWNER" POST /api/attendances "{\"memberId\":\"$MID\",\"courseId\":\"$COURSE\"}")"
+check "erased member cannot attend" '.ok==false and .reason=="UNKNOWN_MEMBER"' "$R"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "$ORIGIN/assets/does-not-exist-123.js")"
+[ "$CODE" = 404 ] && pass "missing /assets file -> 404 (no index fallback)" || fail "missing /assets file" "got $CODE"
+curl -s "$ORIGIN/" | grep -q '<script>' && fail "index.html still has an inline script" || pass "index.html has no inline script"
+
 echo
 if [ "$FAILS" -eq 0 ]; then echo "ALL PASS"; else echo "$FAILS FAILED"; exit 1; fi
