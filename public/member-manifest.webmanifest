@@ -1,0 +1,8 @@
+{
+  "name": "THE DEPTH",
+  "short_name": "THE DEPTH",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "start_url": "."
+}
