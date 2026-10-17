@@ -12,7 +12,7 @@ Lightsail 서울 인스턴스 1대(Ubuntu 24.04, 1GB) 위에서 Docker Compose �
 | 방화벽 | Lightsail 22/80/443 + ufw 22/80/443, SSH 비밀번호 로그인 끔 |
 | 백업 버킷 | `studiopass-backup-<랜덤6>`, bundle `small_1_0` (5GB, 월 1달러). 이름은 맥의 `~/.studiopass/bucket-name` |
 | AWS 프로파일 | `personal-ops` 만. 스크립트가 `AWS_CONFIG_FILE=~/personal/.aws/config AWS_SHARED_CREDENTIALS_FILE=~/personal/.aws/credentials` 를 강제합니다 |
-| 서버 디렉터리 | `/srv/studiopass/app` (compose, Caddyfile, 스크립트, `.env`), `data/` (SQLite, uid 1000), `src/<tag>/` (배포한 소스), `backups/`, `CURRENT_TAG`, `PREV_TAG` |
+| 서버 디렉터리 | `/srv/studiopass/app` (CURRENT_TAG 의 compose, Caddyfile, 스크립트, crontab, `.env`), `app.prev/` (PREV_TAG 의 같은 파일들), `data/` (SQLite, uid 1000), `src/<tag>/` (배포한 소스), `backups/`, `CURRENT_TAG`, `PREV_TAG` |
 | 비밀 | 서버 `/etc/studiopass/backup.env` (버킷 전용 키), `/etc/studiopass/alerts.env` (`NTFY_TOPIC=`), 둘 다 600 |
 | cron | `/etc/cron.d/studiopass`: 18:30 UTC(03:30 KST) 백업, 5분마다 헬스체크 |
 | 로그 | `/var/log/studiopass-backup.log`, `docker compose logs api` (컨테이너 로그는 10MB x 3 로 순환) |
@@ -72,8 +72,10 @@ scripts/deploy.sh
 2. 서버에서 `docker compose build` 로 `studiopass:<sha>` 를 만듭니다. 빌드가 실패하면 아무것도 바뀌지 않습니다.
 3. 배포 전 백업: `/srv/studiopass/backups/pre-deploy/<KST날짜>-<UTC시각>-<sha>.db.gz` (최근 5개 보관) + 버킷 `pre-deploy/` 에 업로드(업로드 실패는 경고만, 로컬 사본이 있으면 계속). 로컬 백업이 실패하면 배포를 멈춥니다.
 4. 지금 태그를 `/srv/studiopass/PREV_TAG` 에 적고 새 태그로 `docker compose up -d`.
-5. 컨테이너 안에서 `/api/healthz` 를 최대 60초 확인합니다. 실패하면 자동으로 PREV_TAG 로 되돌리고 ntfy "studiopass 배포 실패, 이전 버전으로 되돌림" 을 보냅니다.
-6. 성공하면 `CURRENT_TAG` 를 갱신하고 오래된 소스·이미지를 정리합니다(최근 3개 + CURRENT/PREV 는 남김).
+5. 컨테이너 안에서 `/api/healthz` 를 최대 60초 확인합니다. `compose up` 이 실패하거나 헬스체크가 실패하면 자동으로 이전 버전으로 되돌립니다. 이미지뿐 아니라 compose, Caddyfile, 스크립트, crontab 도 배포 전 것(`app.pre/` 에 잠시 보관)으로 되돌립니다. ntfy 는 "studiopass 배포 실패, 이전 버전으로 되돌림", 되돌리기까지 실패하면 "studiopass 배포 실패, 되돌리기도 실패" 입니다.
+6. 성공하면 `CURRENT_TAG` 를 갱신하고, 배포 전 `app/` 을 `app.prev/` 로 옮기고, 오래된 소스·이미지를 정리합니다(최근 3개 + CURRENT/PREV 는 남김).
+
+빌드나 배포 전 백업이 실패해도 `app/` 은 배포 전 상태로 돌아갑니다.
 
 상태 보기: `scripts/deploy.sh --status` (CURRENT/PREV 태그, 컨테이너, 최근 배포 전 백업, 백업 로그).
 
@@ -88,7 +90,7 @@ scripts/deploy.sh
 | 새 버전이 데이터를 망가뜨림 | `--rollback` 후 `scripts/deploy.sh --restore pre-deploy` | 배포 이후 데이터 사라짐 | 약 2분 |
 | DB 파일 손상, 실수로 지운 데이터 | `scripts/deploy.sh --restore YYYY-MM-DD` | 그 날 03:30 이후 데이터 사라짐 | 약 2~3분 |
 
-- `--rollback` 은 `/srv/studiopass/PREV_TAG` 의 이미지로 compose up 만 합니다. DB 는 건드리지 않습니다. 롤백 뒤 CURRENT 와 PREV 가 서로 바뀌므로, 한 번 더 `--rollback` 하면 다시 앞 버전으로 갑니다.
+- `--rollback` 은 `app/` 과 `app.prev/` 를 맞바꾸고(compose, Caddyfile, 스크립트, crontab 이 이전 버전 것으로 돌아감) `/srv/studiopass/PREV_TAG` 의 이미지로 compose up 합니다. DB 는 건드리지 않습니다. 롤백 뒤 CURRENT/PREV 와 `app/`/`app.prev/` 가 서로 바뀌므로, 한 번 더 `--rollback` 하면 다시 앞 버전으로 갑니다. compose up 이 실패하면 파일을 다시 맞바꿔 놓고 멈춥니다.
 - 이전 이미지가 서버에 있어야 합니다(`docker image ls studiopass`). 정리 단계가 CURRENT/PREV 이미지는 지우지 않습니다.
 - 새 버전이 DB 마이그레이션을 추가했다면 `--rollback` 뒤에도 마이그레이션은 남습니다. 지금 마이그레이션은 테이블·컬럼 추가만 하므로 이전 코드가 대개 그대로 돕니다. 이전 코드가 새 스키마로 안 돌면 `--restore pre-deploy` 가 필요합니다.
 - **`--restore` 는 백업 시점 이후에 들어온 출석·결제·회원 변경을 잃습니다. 마지막 수단입니다.** 실행하면 `restore <대상>` 을 그대로 입력하라고 묻고, 바꾸기 전에 지금 DB 를 `/srv/studiopass/backups/pre-restore/` 에 따로 저장합니다. 복원을 되돌리려면 그 파일을 같은 방법(서버에서 api 정지 후 `data/studiopass.db` 교체, `-wal`/`-shm` 삭제, uid 1000 소유)으로 다시 넣습니다.

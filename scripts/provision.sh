@@ -104,7 +104,7 @@ bucket=$(cat "$OUT/bucket-name" 2>/dev/null || true)
 if [ -n "$bucket" ] && exists awsp lightsail get-buckets --bucket-name "$bucket"; then
   say "bucket $bucket: exists"
 else
-  bucket="studiopass-backup-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 6)"
+  bucket="studiopass-backup-$(openssl rand -hex 3)"   # 6 hex chars; tr|head would SIGPIPE under pipefail
   ask "백업 버킷 $bucket ($BUCKET_BUNDLE, 5GB, \$1/월) 을 만듭니다." || exit 1
   awsp lightsail create-bucket --bucket-name "$bucket" --bundle-id "$BUCKET_BUNDLE" --tags key=project,value=studiopass >/dev/null
   echo "$bucket" >"$OUT/bucket-name"

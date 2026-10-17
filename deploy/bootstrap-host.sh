@@ -46,12 +46,20 @@ APT::Periodic::Unattended-Upgrade "1";
 CONF
 
 say "ssh: keys only"
-cat >/etc/ssh/sshd_config.d/99-studiopass.conf <<'CONF'
+# sshd keeps the FIRST value it reads and includes sshd_config.d/*.conf in lexical order, so this
+# must sort before 50-cloud-init.conf (which can set PasswordAuthentication yes).
+rm -f /etc/ssh/sshd_config.d/99-studiopass.conf   # older name from an earlier version of this script
+cat >/etc/ssh/sshd_config.d/00-studiopass.conf <<'CONF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 CONF
-sshd -t && systemctl reload ssh
+sshd -t
+if ! sshd -T | grep -qx 'passwordauthentication no'; then
+  echo "sshd still allows password login (check /etc/ssh/sshd_config.d/); not reloading" >&2
+  exit 1
+fi
+systemctl reload ssh
 
 say "ufw 22/80/443"
 ufw allow 22/tcp >/dev/null
@@ -64,7 +72,7 @@ install -d -m 755 "$SP_ROOT" "$SP_ROOT/app" "$SP_ROOT/src"
 install -d -m 700 "$SP_ROOT/backups"
 install -d -m 750 -o 1000 -g 1000 "$SP_ROOT/data"   # uid 1000 = node in the image
 install -d -m 755 /var/lib/studiopass
-install -m 644 "$HERE/docker-compose.yml" "$HERE/Caddyfile" "$SP_ROOT/app/"
+install -m 644 "$HERE/docker-compose.yml" "$HERE/Caddyfile" "$HERE/crontab" "$SP_ROOT/app/"
 install -m 755 "$HERE/backup.sh" "$HERE/healthcheck.sh" "$HERE/remote.sh" "$SP_ROOT/app/"
 if [ -f "$SP_ROOT/app/.env" ] && grep -q '^TAG=' "$SP_ROOT/app/.env"; then
   tag=$(sed -n 's/^TAG=//p' "$SP_ROOT/app/.env" | tail -n 1)
