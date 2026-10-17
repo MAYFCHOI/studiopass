@@ -61,12 +61,22 @@ up_tag() { # $1 = tag. Returns non-zero (never exits) so callers can roll back a
   TAG="$1" compose up -d --no-build --remove-orphans
 }
 
-reload_caddy() { # apply the shipped Caddyfile. Failure is logged, never fatal (the site keeps serving the old config).
+reload_caddy() { # $1 = the Caddyfile caddy is running now (optional). Failure is logged, never fatal.
   # Validate first, in a throwaway caddy container that mounts the new file directly (the running container may
   # still see the old inode, see below). An invalid file is never applied: the running caddy keeps the old config.
+  local running=${1:-}
   if ! compose run --rm --no-deps -T -v "$APP/Caddyfile:/tmp/Caddyfile.new:ro" caddy \
       caddy validate --config /tmp/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
-    say "WARNING: new Caddyfile failed 'caddy validate'; caddy keeps running the old config. Check: cd $APP && docker compose run --rm --no-deps -T -v \"\$PWD/Caddyfile:/tmp/c:ro\" caddy caddy validate --config /tmp/c --adapter caddyfile"
+    # Put the running file back into app/, so a reboot or 'compose up' does not load the invalid one.
+    # The rejected file is kept next to it for inspection.
+    if [ -n "$running" ] && [ -f "$running" ] && ! cmp -s "$running" "$APP/Caddyfile"; then
+      cp -p "$APP/Caddyfile" "$APP/Caddyfile.rejected"
+      install -m 644 "$running" "$APP/Caddyfile"
+      say "WARNING: new Caddyfile failed 'caddy validate'; restored the running Caddyfile into $APP (rejected copy: $APP/Caddyfile.rejected)"
+    else
+      say "WARNING: new Caddyfile failed 'caddy validate' and no previous Caddyfile to restore; caddy keeps running the old config but $APP/Caddyfile is invalid until fixed"
+    fi
+    say "Check: cd $APP && docker compose run --rm --no-deps -T -v \"\$PWD/Caddyfile.rejected:/tmp/c:ro\" caddy caddy validate --config /tmp/c --adapter caddyfile"
     notify "studiopass 설정 확인 필요"
     return 0
   fi
@@ -115,6 +125,8 @@ prune_old() { # keep the newest $KEEP_TAGS source trees + images, never CURRENT/
     say "pruned $t"
   done
   docker image prune -f >/dev/null 2>&1 || true
+  # Each host build leaves BuildKit cache (two npm ci stages); keep it bounded so the 40 GB disk does not fill.
+  docker builder prune -f --keep-storage 2GB >/dev/null 2>&1 || true
 }
 
 cmd_deploy() {
@@ -137,9 +149,9 @@ cmd_deploy() {
   say "starting $tag (previous: ${cur:-none})"
   if up_tag "$tag" && healthy; then
     echo "$tag" >"$SP_ROOT/CURRENT_TAG"
-    app_commit "$changed"
     say "healthz ok, $tag is live"
-    reload_caddy
+    reload_caddy "$SP_ROOT/app.pre/Caddyfile"   # app.pre/ = the files caddy runs now; restored into app/ if the new one is invalid
+    app_commit "$changed"
     prune_old
     return 0
   fi
@@ -185,7 +197,7 @@ cmd_rollback() {
   echo "$prev" >"$SP_ROOT/CURRENT_TAG"
   echo "$cur" >"$SP_ROOT/PREV_TAG"   # a second --rollback goes forward again
   healthy && say "healthz ok, $prev is live" || die "healthz failed after rollback"
-  reload_caddy
+  reload_caddy "$SP_ROOT/app.prev/Caddyfile"   # after the swap app.prev/ holds the files caddy was running
 }
 
 cmd_restore() {
