@@ -62,6 +62,14 @@ up_tag() { # $1 = tag. Returns non-zero (never exits) so callers can roll back a
 }
 
 reload_caddy() { # apply the shipped Caddyfile. Failure is logged, never fatal (the site keeps serving the old config).
+  # Validate first, in a throwaway caddy container that mounts the new file directly (the running container may
+  # still see the old inode, see below). An invalid file is never applied: the running caddy keeps the old config.
+  if ! compose run --rm --no-deps -T -v "$APP/Caddyfile:/tmp/Caddyfile.new:ro" caddy \
+      caddy validate --config /tmp/Caddyfile.new --adapter caddyfile >/dev/null 2>&1; then
+    say "WARNING: new Caddyfile failed 'caddy validate'; caddy keeps running the old config. Check: cd $APP && docker compose run --rm --no-deps -T -v \"\$PWD/Caddyfile:/tmp/c:ro\" caddy caddy validate --config /tmp/c --adapter caddyfile"
+    notify "studiopass 설정 확인 필요"
+    return 0
+  fi
   # compose up does not recreate caddy when only the Caddyfile changed. The file is a single-file bind mount, and
   # install/mv replace the host file with a new inode, so the running container can still see the old one: then a
   # reload alone would reread stale content and a restart (re-resolves the mount, ~1s blip) is needed instead.
