@@ -57,9 +57,13 @@ export function ownerRoutes(d: Deps) {
     if (v.courseId && !db.prepare('select 1 from courses where id=?').get(v.courseId)) return bad(c);
     const clash = db.prepare('select id from products where name=? and id<>?').get(v.name.trim(), id);
     if (clash) return c.json({ error: 'DUPLICATE_NAME' }, 409);
-    db.prepare('insert into products(id,name,course_id,pass_kind,count,period_days,price,active) values(?,?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name, course_id=excluded.course_id, pass_kind=excluded.pass_kind, count=excluded.count, period_days=excluded.period_days, price=excluded.price, active=excluded.active')
-      .run(id, v.name.trim(), v.courseId ?? null, v.passKind, v.count, v.periodDays, v.price, v.active === false ? 0 : 1);
-    audit(db, c.get('me').staffId, cur ? 'product.update' : 'product.create', 'product', id, b);
+    // Ruling 7: an owner saving any product means prices are no longer the seeded samples.
+    db.transaction(() => {
+      db.prepare('insert into products(id,name,course_id,pass_kind,count,period_days,price,active) values(?,?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name, course_id=excluded.course_id, pass_kind=excluded.pass_kind, count=excluded.count, period_days=excluded.period_days, price=excluded.price, active=excluded.active')
+        .run(id, v.name.trim(), v.courseId ?? null, v.passKind, v.count, v.periodDays, v.price, v.active === false ? 0 : 1);
+      db.prepare("insert into settings(key,value) values('needs_real_prices','0') on conflict(key) do update set value='0'").run();
+      audit(db, c.get('me').staffId, cur ? 'product.update' : 'product.create', 'product', id, b);
+    })();
     return c.json(toProduct(db.prepare('select * from products where id=?').get(id), 'OWNER'));
   });
 

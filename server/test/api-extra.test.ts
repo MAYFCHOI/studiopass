@@ -134,6 +134,14 @@ describe('owner upserts and staff', () => {
     expect((await req('/tiers', { method: 'PUT', body: [{ name: 'B', minCount: 5 }] }, o)).status).toBe(400);
     expect(db.prepare("select count(*) n from audit_log where action like 'product.%'").get().n).toBe(2);
   });
+  it('owner product save clears needsRealPrices; a desk attempt does not', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    expect((await (await req('/bootstrap', {}, o)).json()).needsRealPrices).toBe(true);
+    expect((await req('/products/p_one', { method: 'PUT', body: { price: 35000 } }, d)).status).toBe(403);
+    expect((await (await req('/bootstrap', {}, o)).json()).needsRealPrices).toBe(true);
+    expect((await req('/products/p_one', { method: 'PUT', body: { price: 35000 } }, o)).status).toBe(200);
+    expect((await (await req('/bootstrap', {}, o)).json()).needsRealPrices).toBe(false);
+  });
   it('creates a desk account and deactivation revokes its sessions', async () => {
     const o = await login('owner');
     const s = await (await req('/staff', { method: 'POST', body: { loginId: 'desk2', name: '인포2', password: 'pw-12345678' } }, o)).json();
