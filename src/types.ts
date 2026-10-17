@@ -177,7 +177,7 @@ export interface Actions {
    *  같은 승인번호의 취소 행은 저장된 승인 결제를 취소(cancelled), 출석에 쓰인 수강권이면 그대로 두고 cancelFailed. */
   importPayments(rows: ImportRow[], opts?: { batchId?: string }): Promise<ImportResult>;
   /** 원장 전용: 잘못 올린 업로드 묶음 되돌리기(출석에 쓰인 수강권의 결제는 남긴다) */
-  revertImport(batchId: string): Promise<{ ok: true; removed: number; kept: number } | { ok: false; error: 'REFUND_LINKED'; count: number }>;
+  revertImport(batchId: string): Promise<{ ok: true; removed: number; kept: number } | { ok: false; error: 'REFUND_LINKED' | 'HAS_CANCELLED'; count: number }>;
   addPayment(p: NewPayment, opts?: { idempotencyKey?: string }): Promise<void>;
   /** 결제를 회원에게 연결. 이미 다른 회원에게 연결된 결제는 수강권을 옮긴다(출석에 쓰였으면 PASS_IN_USE). */
   assignPayment(paymentId: string, memberId: string): Promise<AssignResult>;

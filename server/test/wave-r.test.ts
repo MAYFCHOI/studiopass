@@ -202,6 +202,39 @@ describe('H5 import batch revert', () => {
     expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'REFUND_LINKED', count: 1 });
     expect(db.prepare("select count(*) n from payments where external_id='O1-C'").get()).toEqual({ n: 1 });
   });
+  it('revert is refused when a payment of the batch was cancelled later (refund in another batch); re-upload cannot resurrect it', async () => {
+    const o = await login('owner');
+    await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, o);
+    await req('/payments/import', { method: 'POST', body: { batchId: 'batch-file-001', rows: [kiosk({ externalId: 'F1' }), kiosk({ externalId: 'F2', paidAt: '2026-10-19T09:30:00Z' })] } }, o);
+    // a later export carries the same-number refund for F1
+    expect(await (await req('/payments/import', { method: 'POST', body: { batchId: 'batch-file-002', rows: [kiosk({ externalId: 'F1', status: 'CANCELLED' })] } }, o)).json()).toMatchObject({ cancelled: 1 });
+    const r = await req('/payments/import-batches/batch-file-001/revert', { method: 'POST' }, o);
+    expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'HAS_CANCELLED', count: 1 });
+    // nothing deleted, so re-uploading the first file is all duplicates and F1 stays cancelled
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'F1' }), kiosk({ externalId: 'F2', paidAt: '2026-10-19T09:30:00Z' })] } }, o)).json()).toMatchObject({ added: 0, dup: 2 });
+    expect(db.prepare("select status, pass_id from payments where external_id='F1'").get()).toEqual({ status: 'CANCELLED', pass_id: null });
+    expect(count("select count(*) n from passes")).toBe(1);
+  });
+  it('a desk-cancelled payment also blocks reverting its batch', async () => {
+    const o = await login('owner');
+    await req('/payments/import', { method: 'POST', body: { batchId: 'batch-file-003', rows: [kiosk({ externalId: 'G1', payerPhone: '' })] } }, o);
+    await req(`/payments/${db.prepare("select id from payments where external_id='G1'").get().id}/cancel`, { method: 'POST' }, o);
+    expect((await req('/payments/import-batches/batch-file-003/revert', { method: 'POST' }, o)).status).toBe(409);
+  });
+  it('same approval number but a different amount or phone is only suggested; nothing is cancelled; re-import is a duplicate', async () => {
+    const o = await login('owner');
+    await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, o);
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'S1' }), kiosk({ externalId: 'S2', paidAt: '2026-10-19T09:10:00Z' })] } }, o);
+    const rows = [kiosk({ externalId: 'S1', status: 'CANCELLED', amount: 90000 }), kiosk({ externalId: 'S2', status: 'CANCELLED', payerPhone: '01099990000', paidAt: '2026-10-19T09:10:00Z' })];
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows } }, o)).json()).toMatchObject({ added: 2, cancelled: 0, refundSuggested: 2 });
+    expect(count("select count(*) n from payments where status='APPROVED' and external_id in ('S1','S2')")).toBe(2);
+    const f = db.prepare("select id, review, refund_suggested_of s from payments where external_id='S1#R'").get();
+    expect(f).toMatchObject({ review: 'REFUND_SUGGESTED', s: db.prepare("select id from payments where external_id='S1'").get().id });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows } }, o)).json()).toMatchObject({ added: 0, dup: 2, refundSuggested: 0 });
+    // the desk confirms one
+    expect((await req(`/payments/${f.id}/refund-of`, { method: 'POST', body: { originalId: f.s } }, o)).status).toBe(200);
+    expect(db.prepare("select status from payments where external_id='S1'").get()).toEqual({ status: 'CANCELLED' });
+  });
   it('revertBatch on an unknown batch is a no-op', () => {
     const { db } = makeDb();
     expect(revertBatch(db, 'nope-nope', null)).toEqual({ removed: 0, kept: 0 });

@@ -156,7 +156,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       },
       revertImport: async (batchId) => {
         const r = await mutate409<{ removed: number; kept: number }>(`/payments/import-batches/${encodeURIComponent(batchId)}/revert`, { method: 'POST' });
-        return r.ok ? { ok: true, ...r.r } : { ok: false, error: 'REFUND_LINKED', count: r.used };
+        return r.ok ? { ok: true, ...r.r } : { ok: false, error: r.error === 'HAS_CANCELLED' ? 'HAS_CANCELLED' : 'REFUND_LINKED', count: r.used };
       },
       addPayment: (p, opts) => post('/payments', p, idem(opts?.idempotencyKey)).then(() => {}),
       assignPayment: async (paymentId, memberId): Promise<AssignResult> => {

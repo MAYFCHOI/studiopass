@@ -77,7 +77,12 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
     if (!confirm(`${label}\n이 업로드로 들어온 결제와 수강권을 지워요. 출석에 쓰인 수강권의 결제는 남아요. 지운 뒤 고친 컬럼으로 파일을 다시 올리면 돼요.`)) return;
     const r = await s.revertImport(batchId).catch(() => null);
     if (!r) return;
-    if (!r.ok) { toast(`이 업로드의 환불 ${r.count}건이 이미 원 결제를 취소해서 되돌릴 수 없어요. 결제를 한 건씩 확인해 주세요`); return; }
+    if (!r.ok) {
+      toast(r.error === 'HAS_CANCELLED'
+        ? `이 업로드의 결제 ${r.count}건이 이미 취소(환불)돼서 되돌릴 수 없어요. 지우고 다시 올리면 취소된 결제가 되살아나요. 결제를 한 건씩 확인해 주세요`
+        : `이 업로드의 환불 ${r.count}건이 이미 원 결제를 취소해서 되돌릴 수 없어요. 결제를 한 건씩 확인해 주세요`);
+      return;
+    }
     if (result) setResult({ ...result, reverted: { removed: r.removed, kept: r.kept } });
   });
 

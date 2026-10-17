@@ -56,7 +56,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           const used = usedOf(pay.passId);
           if (used > 0) return { ok: false, used };
           set({
-            payments: s.payments.map((p) => (p.id === paymentId ? { ...p, status: 'CANCELLED', passId: undefined, review: undefined } : p)),
+            payments: s.payments.map((p) => (p.id === paymentId ? { ...p, status: 'CANCELLED', passId: undefined, review: undefined, cancelledLater: true } as Payment : p)), // cancelledLater: 서버의 payment.cancel 기록 대신(되돌리기 판정)
             passes: s.passes.filter((x) => x.id !== pay.passId),
             attendances: s.attendances.filter((a) => !pay.passId || a.passId !== pay.passId),
           });
@@ -102,13 +102,13 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0, refundUnmatched = 0, refundSuggested = 0;
           const dupBatches = new Map<string, number>();
           const fresh: Payment[] = [];
-          const refundsSame: string[] = [];
+          const refundsSame: Payment[] = [];
           const refundsNew: Payment[] = [];
           for (const { raw: _raw, line: _line, ...r0 } of rows) {
             const r = { ...r0, payerPhone: normalizePhone(r0.payerPhone) };
             const k = keyOf(r);
             if (seen.has(k) || stored.has(k)) {
-              if (r.status === 'CANCELLED' && r.externalId) { refundsSame.push(r.externalId); continue; }
+              if (r.status === 'CANCELLED' && r.externalId) { refundsSame.push({ ...r, id: uid(), importBatchId: batchId }); continue; }
               dup++;
               const b = stored.get(k)?.importBatchId;
               if (b && b !== batchId) dupBatches.set(b, (dupBatches.get(b) ?? 0) + 1);
@@ -128,8 +128,16 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           }
           // 서버와 같은 규칙: 같은 승인번호의 취소 행은 승인 결제를 취소, 출석에 쓰인 수강권이면 그대로 두고 확인 필요
           for (const x of refundsSame) {
-            const pay = get().payments.find((p) => p.externalId === x && p.status === 'APPROVED');
+            const pay = get().payments.find((p) => p.externalId === x.externalId && p.status === 'APPROVED');
             if (!pay) { dup++; continue; }
+            // 같은 승인번호인데 전화(둘 다 있을 때)나 금액이 다르면 자동 취소하지 않고 제안으로(서버와 같은 규칙, '<번호>#R')
+            if ((x.payerPhone && pay.payerPhone && x.payerPhone !== pay.payerPhone) || x.amount !== pay.amount) {
+              const ext = x.externalId + '#R';
+              if (get().payments.some((p) => p.externalId === ext)) { dup++; continue; }
+              set((st) => ({ payments: [...st.payments, { ...x, externalId: ext, status: 'CANCELLED', review: 'REFUND_SUGGESTED', refundSuggestedOf: pay.id }] }));
+              added++; refundSuggested++;
+              continue;
+            }
             if (cancelSync(pay.id).ok) cancelled++; else { patchPayment(pay.id, { review: 'REFUND_IN_USE' }); cancelFailed++; }
           }
           // 승인번호가 다른 환불: 자동 취소하지 않는다. 같은 전화·금액·상품, 30일 안 후보가 하나로 좁혀지면 제안, 아니면 원 결제 고르기
@@ -189,6 +197,8 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           importPayments: async (rows, opts) => importSync(rows, opts?.batchId ?? newRequestKey()),
           revertImport: async (batchId) => {
             const s = get();
+            const later = s.payments.filter((p) => p.importBatchId === batchId && p.status === 'CANCELLED' && (p as Payment & { cancelledLater?: boolean }).cancelledLater).length;
+            if (later) return { ok: false, error: 'HAS_CANCELLED', count: later };
             const linked = s.payments.filter((f) => f.importBatchId === batchId && f.refundOf && s.payments.some((o) => o.id === f.refundOf && o.status === 'CANCELLED')).length;
             if (linked) return { ok: false, error: 'REFUND_LINKED', count: linked };
             let removed = 0, kept = 0;

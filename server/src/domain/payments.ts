@@ -87,12 +87,22 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
         : db.prepare('select id, import_batch_id from payments where external_id is null and payer_phone=? and paid_at=? and amount=?').get(phone, r.paidAt, r.amount);
       if (seen.has(key) || existing) {
         const stored = r.status === 'CANCELLED' && r.externalId
-          ? db.prepare("select id from payments where external_id=? and status='APPROVED'").get(r.externalId) as { id: string } | undefined
+          ? db.prepare("select id, payer_phone, amount from payments where external_id=? and status='APPROVED'").get(r.externalId) as { id: string; payer_phone: string; amount: number } | undefined
           : undefined;
         if (!stored) {
           dup++;
           const b = (existing as { import_batch_id: string | null } | undefined)?.import_batch_id;
           if (b && b !== batchId) dupBatches.set(b, (dupBatches.get(b) ?? 0) + 1);
+          continue;
+        }
+        // 같은 승인번호인데 전화(둘 다 있을 때)나 금액이 다르면 자동 취소하지 않고 환불 행을 제안으로 남긴다.
+        // 승인번호는 유일 색인이라 환불 행은 '<번호>#R' 로 저장한다(같은 파일을 다시 올리면 중복).
+        if ((phone && stored.payer_phone && phone !== stored.payer_phone) || Math.round(r.amount) !== stored.amount) {
+          const ext = r.externalId + '#R';
+          if (db.prepare('select 1 from payments where external_id=?').get(ext)) { dup++; continue; }
+          db.prepare("insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,import_batch_id,review,refund_suggested_of) values(?,?,?,?,?,?,?,?,'CANCELLED',?,?,?,'REFUND_SUGGESTED',?)")
+            .run(newId(), r.source, ext, r.paidAt, Math.round(r.amount), r.payerName ?? null, phone, r.productName, staffId, nowIso(), batchId, stored.id);
+          added++; refundSuggested++;
           continue;
         }
         try { cancelPayment(db, stored.id, staffId); cancelled++; } catch (e) {
@@ -183,7 +193,11 @@ export function clearReview(db: Db, paymentId: string, staffId: string | null) {
  * 출석에 쓰인 수강권의 결제는 남기고 kept 로 센다.
  */
 export function revertBatch(db: Db, batchId: string, staffId: string | null) {
-  return db.transaction((): { removed: number; kept: number } | { error: 'REFUND_LINKED'; count: number } => {
+  return db.transaction((): { removed: number; kept: number } | { error: 'REFUND_LINKED' | 'HAS_CANCELLED'; count: number } => {
+    // 들어온 뒤 취소된 결제(환불 반영, 직접 취소)가 있으면 되돌리지 않는다: 지우고 같은 파일을 다시 올리면 승인으로 되살아난다.
+    // 처음부터 취소 행으로 들어온 환불 행은 payment.cancel 기록이 없어 여기에 걸리지 않는다.
+    const cancelledAfter = (db.prepare("select count(*) n from payments p where p.import_batch_id=? and p.status='CANCELLED' and exists (select 1 from audit_log a where a.action='payment.cancel' and a.entity_id=p.id)").get(batchId) as { n: number }).n;
+    if (cancelledAfter > 0) return { error: 'HAS_CANCELLED', count: cancelledAfter };
     // 이 묶음의 환불 행으로 이미 취소된 원 결제가 있으면 되돌리지 않는다(지운 수강권은 다시 만들 수 없다).
     const linked = (db.prepare("select count(*) n from payments f join payments o on o.id=f.refund_of where f.import_batch_id=? and o.status='CANCELLED'").get(batchId) as { n: number }).n;
     if (linked > 0) return { error: 'REFUND_LINKED', count: linked };
