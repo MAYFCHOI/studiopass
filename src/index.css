@@ -418,3 +418,15 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
   .lg-term { font-size: 14px; }
   .lg-pay { text-align: right; font-size: 20px; align-self: baseline; }
 }
+
+/* 로그인 · 오프라인 띠 · 계정 (서버 모드) */
+.login { max-width: 520px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 18px) 20px 40px; min-height: 100%; }
+.login .hero { margin: 48px 0 26px; }
+.login form { max-width: 420px; }
+.login .btn.wide { margin-top: 10px; height: 52px; }
+.login-err { background: var(--ink); color: var(--paper); border-radius: 6px; padding: 12px 14px; font-weight: 700; font-size: 14px; margin: 14px 0 0; }
+.offline-bar { position: sticky; top: 0; z-index: 25; background: var(--ink); color: var(--paper); padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; font-weight: 700; font-size: 14px; line-height: 1.4; text-align: center; }
+.topbar .account { white-space: nowrap; flex: none; display: inline-flex; align-items: center; gap: 8px; align-self: center; margin-right: 12px; font-size: 13px; font-weight: 700; }
+.topbar .account button { font-size: 12px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.notice { background: var(--ink); color: var(--paper); border-radius: 6px; padding: 14px 16px; margin-top: 14px; font-weight: 700; font-size: 14px; }
+@media (max-width: 480px) { .topbar.has-account .date { display: none; } .topbar.has-account .account { margin-left: auto; } }

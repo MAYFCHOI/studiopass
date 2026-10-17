@@ -1,5 +1,6 @@
 .env
 .env.*
+!.env.demo
 node_modules/
 __pycache__/
 *.xlsx

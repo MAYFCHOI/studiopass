@@ -7,6 +7,7 @@ import { ClassCard } from '../components/ClassCard';
 import { passName, courseTitle } from '../lib/labels';
 import type { Course, Hall } from '../types';
 import { HALL_NAME } from '../lib/labels';
+import { IS_DEMO } from '../lib/mode';
 
 export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const s = useStore();
@@ -30,7 +31,7 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
 
   return (
     <div className="today">
-      {welcome && (
+      {IS_DEMO && welcome && (
         <div className="welcome">
           <div><b>연습용 데이터가 들어 있어요.</b> 회원·결제·출석은 가짜예요. 설정 맨 아래에서 처음 상태로 되돌릴 수 있어요.</div>
           <button onClick={closeWelcome} aria-label="안내 닫기">✕</button>

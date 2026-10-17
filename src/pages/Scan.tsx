@@ -4,6 +4,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useStore, type ScanResult } from '../store';
 import type { Tab } from '../App';
 import { reasonText } from '../lib/reasons';
+import { IS_DEMO } from '../lib/mode';
+import { useOnline } from '../lib/useOnline';
 import { ClassCard } from '../components/ClassCard';
 import { courseTitle, courseMeta, passName } from '../lib/labels';
 
@@ -26,6 +28,10 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
   const scanner = useRef<Html5Qrcode | null>(null);
   const busy = useRef(false);
   const list = showAll ? s.courses : todays;
+  // 서버 모드에서 끊겼으면 카메라 결과를 처리하지 않는다(카메라 콜백이 최신 값을 보도록 ref).
+  const offline = !useOnline() && !IS_DEMO;
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
 
   // 카메라는 QR 글자를 그대로, 이름 검색은 회원 id 로 보낸다. 판정은 store(데모: AM1 해석, 서버: AM2 서명 확인).
   const handle = (input: { qr?: string; memberId?: string }) => {
@@ -58,7 +64,12 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
       const hasBack = list.some((c) => /back|rear|environment|후면/i.test(c.label));
       const target = hasBack && camIdx === 0 ? { facingMode: 'environment' as const } : list[camIdx % list.length].id;
       await inst.start(target, { fps: 8, qrbox: (w, h) => { const m = Math.min(w, h) * 0.62; return { width: m, height: m }; } },
-        (text) => handle({ qr: text }),
+        (text) => {
+          if (!offlineRef.current) { handle({ qr: text }); return; }
+          if (busy.current) return;
+          busy.current = true;
+          setResult({ ok: false, reason: 'OFFLINE' });
+        },
         () => {});
     })().catch((e) => { if (!stopped) setCamErr(String(e?.message ?? e)); });
     // 정리: stop() 은 카메라가 아직 켜지는 중이거나 실패한 상태면 동기 예외를 던진다.

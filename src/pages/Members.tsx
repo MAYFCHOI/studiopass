@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon';
 import { passName, courseTitle } from '../lib/labels';
 import logoMark from '../assets/logo-mark.png';
 import { toast } from '../components/Toast';
+import { IS_DEMO } from '../lib/mode';
 
 function QR({ text }: { text: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -40,6 +41,20 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
       toast('QR 이미지를 저장했어요');
     };
+    // 서버 모드: QR 은 서버가 서명(AM2)해서 회원 페이지에만 보인다. 관리자 화면은 그 페이지 링크를 보낸다.
+    const sendLink = async () => {
+      const url = await s.issueLink(m.id).catch(() => null);
+      if (!url) { toast('링크를 만들지 못했어요. 다시 시도해 주세요'); return; }
+      const text = '[THE DEPTH] ' + m.name + '님 회원 페이지예요. 출석할 때 이 화면의 QR 을 보여주세요.\n' + url;
+      if (/Android|iPhone/i.test(navigator.userAgent)) {
+        await s.recordMessage(m.id).catch(() => {});
+        window.location.assign('sms:' + m.phone + '?body=' + encodeURIComponent(text));
+        return;
+      }
+      const copied = await navigator.clipboard?.writeText(text).then(() => true, () => false);
+      if (!copied) { window.prompt('아래 내용을 복사해 문자로 보내 주세요', text); } else toast('링크를 복사했어요');
+      await s.recordMessage(m.id).catch(() => {});
+    };
     return (
       <>
         <button className="btn sm ghost" style={{ marginTop: 14 }} onClick={() => go('members')}><Icon name="back" size={16} />회원 목록</button>
@@ -47,12 +62,12 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           <div className="band"><img className="band-mark" src={logoMark} alt="" /><span>THE DEPTH<small>DANCE STUDIO</small></span><span className="no">{m.memberNo}</span></div>
           <div className="body">
             <div><div className="name">{m.name}</div><div className="phone">{fmtPhone(m.phone)}</div><div className="phone">{dayjs(m.createdAt).format('YYYY.M.D')} 등록</div></div>
-            <QR text={qrPayload(m.id)} />
+            {IS_DEMO && <QR text={qrPayload(m.id)} />}
           </div>
-          <div className="perf"><span>이 QR 을 카메라에 보여주면 출석돼요</span><span>{s.activePasses(m.id).reduce((n, p) => n + p.remaining, 0)}회 남음</span></div>
+          <div className="perf"><span>{IS_DEMO ? '이 QR 을 카메라에 보여주면 출석돼요' : '회원 페이지의 QR 을 카메라에 보여주면 출석돼요'}</span><span>{s.activePasses(m.id).reduce((n, p) => n + p.remaining, 0)}회 남음</span></div>
         </div>
         <div className="btn-row">
-          <button className="btn primary wide" onClick={share}>QR 보내기</button>
+          {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button> : <button className="btn primary wide" onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>
 

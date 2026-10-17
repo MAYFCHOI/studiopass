@@ -6,6 +6,7 @@ import { toast } from '../components/Toast';
 import type { Instructor, Course, Product, Hall } from '../types';
 import { Timetable } from '../components/Timetable';
 import { courseTitle, courseMeta } from '../lib/labels';
+import { IS_DEMO } from '../lib/mode';
 
 export default function Settings() {
   const s = useStore();
@@ -14,6 +15,7 @@ export default function Settings() {
 
   return (
     <>
+      {s.needsRealPrices && <div className="notice" role="note">수강권 가격과 강사 정산 조건이 아직 예시값이에요. 실제 값으로 바꿔주세요</div>}
       <h1><small>{s.studioName}</small>설정</h1>
 
       <h2>수업 시간표</h2>
@@ -56,14 +58,16 @@ export default function Settings() {
           <li>회차권은 결제일부터 상품에 정한 일수 동안 유효. 전문반은 결제일 +30일, 월 12회, 이월 없음.</li>
           <li>한 회원이 수강권을 여러 개 가지면 그 수업 전용권 → 정규 공통 회차권 → 전문반 월정액, 같은 순위는 만료 임박 순.</li>
           <li>QR 에는 회원 식별값만 넣는다. 이름·연락처는 찍었을 때 화면에서만 보인다.</li>
-          <li>지금은 기기(브라우저) 안에만 저장된다. 실제 운영 때는 서버 + 로그인으로 바꾼다.</li>
+          {IS_DEMO && <li>지금은 기기(브라우저) 안에만 저장된다. 실제 운영 때는 서버 + 로그인으로 바꾼다.</li>}
         </ul>
       </div>
 
-      <h2>데이터</h2>
-      <div className="btn-row">
-        <button className="btn ghost wide" onClick={() => { if (confirm('데모 데이터로 되돌릴까요? 지금 입력한 내용은 지워져요.')) { s.reset().then(() => toast('데모 데이터로 되돌렸어요')); } }}>데모 데이터로 초기화</button>
-      </div>
+      {IS_DEMO && <>
+        <h2>데이터</h2>
+        <div className="btn-row">
+          <button className="btn ghost wide" onClick={() => { if (confirm('데모 데이터로 되돌릴까요? 지금 입력한 내용은 지워져요.')) { s.reset().then(() => toast('데모 데이터로 되돌렸어요')); } }}>데모 데이터로 초기화</button>
+        </div>
+      </>}
 
       {edit?.kind === 'ins' && (
         <Sheet onClose={() => setEdit(null)} title={edit.v.name ? '강사 수정' : '강사 추가'}>
@@ -86,7 +90,7 @@ export default function Settings() {
             <div className="field"><label>홀</label><div className="seg">{(['HUB', 'LAB'] as Hall[]).map((h) => <button key={h} aria-pressed={edit.v.hall === h} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, hall: h } })}>{h}</button>)}</div></div>
             <div className="field"><label>레벨</label><select className="input" value={edit.v.level ?? ''} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, level: e.target.value || undefined } })}><option value="">표시 안 함</option>{['0', '1', '2', '3', '4', 'ALL'].map((l) => <option key={l} value={l}>LV.{l}</option>)}</select></div>
           </div>
-          <div className="field"><label>요일</label><div className="seg" style={{ flexWrap: 'wrap' }}>{WEEKDAYS.map((w, i) => <button key={w} aria-pressed={edit.v.weekday.includes(i)} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, weekday: edit.v.weekday.includes(i) ? edit.v.weekday.filter((x) => x !== i) : [...edit.v.weekday, i].sort() } })}>{w}</button>)}</div></div>
+          <div className="field"><label>요일</label><div className="seg" style={{ flexWrap: 'wrap' }}>{WEEKDAYS.map((w, i) => <button key={w} aria-pressed={edit.v.weekday.includes(i)} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, weekday: !IS_DEMO ? [i] : edit.v.weekday.includes(i) ? edit.v.weekday.filter((x) => x !== i) : [...edit.v.weekday, i].sort() } })}>{w}</button>)}</div></div>
           <div className="grid2">
             <div className="field"><label>시작</label><input className="input" type="time" value={edit.v.startTime} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, startTime: e.target.value } })} /></div>
             <div className="field"><label>길이(분)</label><input className="input" inputMode="numeric" value={edit.v.durationMin} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, durationMin: Number(e.target.value) || 0 } })} /></div>
