@@ -13,11 +13,20 @@ export default function Settlement() {
   const [sort, setSort] = useState<'pay' | 'name'>('pay');
   // 데모는 브라우저 안에서 계산, 서버 모드는 /settlement 결과. 출석·강사가 바뀌면 다시 받는다.
   const [raw, setRaw] = useState<SettlementLine[]>([]);
+  // 못 받았으면 0원 대신 안내를 보이고 엑셀도 막는다. 달을 바꾸거나 다시 시도하면 다시 받는다.
+  const [attempt, setAttempt] = useState(0);
+  const key = `${month}#${attempt}`;
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const failed = failedKey === key;
   useEffect(() => {
     let live = true;
-    useStore.getState().settlement(month).then((l) => { if (live) setRaw(l); }, () => { if (live) setRaw([]); });
+    useStore.getState().settlement(month).then((l) => { if (live) { setRaw(l); setFailedKey(null); } }, () => {
+      if (!live) return;
+      setRaw([]); setFailedKey(`${month}#${attempt}`);
+      toast('정산을 불러오지 못했어요. 다시 시도해 주세요');
+    });
     return () => { live = false; };
-  }, [month, s.attendances, s.instructors, s.passes]);
+  }, [month, attempt, s.attendances, s.instructors, s.passes]);
   const lines = [...raw].sort((a, b) => (sort === 'pay' ? b.instructorPay - a.instructorPay : a.instructor.name.localeCompare(b.instructor.name, 'ko')));
   const total = lines.reduce((n, l) => n + l.instructorPay, 0);
   const revenue = lines.reduce((n, l) => n + l.revenue, 0);
@@ -46,6 +55,9 @@ export default function Settlement() {
         <b>{label.format('YYYY년 M월')}</b>
         <button onClick={() => setMonth(label.add(1, 'month').format('YYYY-MM'))} aria-label="다음 달">›</button>
       </div>
+      {failed ? (
+        <div className="empty"><b>정산을 불러오지 못했어요</b>인터넷 연결을 확인하고 다시 시도해 주세요.<div style={{ marginTop: 14 }}><button className="btn sm" onClick={() => setAttempt((n) => n + 1)}>다시 시도</button></div></div>
+      ) : <>
       <header className="hero">
         <p className="hero-date">강사에게 줄 돈</p>
         <h1 className="settle-total num">{won(total)}</h1>
@@ -55,13 +67,14 @@ export default function Settlement() {
         <div className="fig"><b className="num">{won(academy)}</b><span>학원 몫</span></div>
         <div className="fig"><b className="num">{sessions}</b><span>수업 횟수</span></div>
       </div>
+      </>}
 
       <div className="ledger-tools">
         <div className="seg"><button aria-pressed={sort === 'pay'} onClick={() => setSort('pay')}>금액순</button><button aria-pressed={sort === 'name'} onClick={() => setSort('name')}>이름순</button></div>
-        <button className="btn ghost sm" onClick={exportXlsx}><Icon name="download" size={16} />엑셀로 받기</button>
+        <button className="btn ghost sm" disabled={failed} onClick={exportXlsx}><Icon name="download" size={16} />엑셀로 받기</button>
       </div>
 
-      <div className="ledger" role="table" aria-label="강사별 정산">
+      {!failed && <div className="ledger" role="table" aria-label="강사별 정산">
         <div className="lg-row lg-head" role="row">
           <span role="columnheader">강사</span><span role="columnheader">정산 방식</span><span role="columnheader">수업</span><span role="columnheader">출석</span><span role="columnheader">매출</span><span role="columnheader">학원 몫</span><span role="columnheader">강사 지급</span>
         </div>
@@ -77,7 +90,7 @@ export default function Settlement() {
           </div>
         ))}
         {idle > 0 && <p className="sub lg-idle">이달 출석이 없는 강사 {idle}명은 뺐어요.</p>}
-      </div>
+      </div>}
 
       <div className="note">정산 계산 기준
         <ul>
