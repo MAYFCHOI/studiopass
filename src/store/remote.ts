@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import type { State, Store, Me, Member, Instructor, Pass, SettlementLine, ScanFail } from '../types';
+import type { State, Store, Me, Member, Instructor, Pass, SettlementLine, SettlementDetail, ScanFail, ImportResult } from '../types';
 import { api, ApiError } from '../api/client';
 import { activePassesOf } from '../lib/passes';
 import { toast } from '../components/Toast';
@@ -95,10 +95,10 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       cancelAttendance: (id) => post(`/attendances/${id}/cancel`).then(() => {}),
       importPayments: async (rows) => {
         const clean = rows.map(({ raw: _raw, ...r }) => r); // 원본 행은 보내지 않는다
-        const total = { added: 0, dup: 0, matched: 0 };
+        const total: ImportResult = { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0 };
         for (let i = 0; i < clean.length; i += IMPORT_CHUNK) {
-          const r = await post<typeof total>('/payments/import', { rows: clean.slice(i, i + IMPORT_CHUNK) });
-          total.added += r.added; total.dup += r.dup; total.matched += r.matched;
+          const r = await post<ImportResult>('/payments/import', { rows: clean.slice(i, i + IMPORT_CHUNK) });
+          for (const k of Object.keys(total) as (keyof ImportResult)[]) total[k] += r[k] ?? 0;
         }
         return total;
       },
@@ -115,8 +115,9 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         return { ok: true };
       },
       upsertInstructor: (i) => put(`/instructors/${i.id}`, i),
-      upsertCourse: (c) => put(`/courses/${c.id}`, c),
-      upsertProduct: (p) => put(`/products/${p.id}`, p),
+      // 서버 PUT 은 빠진 키를 예전 값으로 채우므로, 비운 선택 항목은 undefined(JSON 에서 빠짐) 대신 null 로 보낸다.
+      upsertCourse: (c) => put(`/courses/${c.id}`, { ...c, level: c.level ?? null, note: c.note ?? null }),
+      upsertProduct: (p) => put(`/products/${p.id}`, { ...p, courseId: p.courseId ?? null }),
       settlement: async (month) => {
         const lines = await call<ServerLine[]>(`/settlement?month=${encodeURIComponent(month)}`);
         const ins = get().instructors;
@@ -125,6 +126,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
           return { ...l, instructor: { ...known, id: instructorId, name, settlementType: l.type, ratioInstructor, perSessionFee } };
         });
       },
+      settlementDetail: (month) => call<SettlementDetail>(`/settlement/detail?month=${encodeURIComponent(month)}`),
       reset: async () => {},
       activePasses: (memberId) => activePassesOf(get().passes, memberId),
     };

@@ -2,7 +2,12 @@
   "name": "THE DEPTH",
   "short_name": "THE DEPTH",
   "display": "standalone",
+  "scope": "/m/",
   "background_color": "#0d0d0d",
   "theme_color": "#0d0d0d",
-  "start_url": "."
+  "icons": [
+    { "src": "/member-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/member-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/member-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

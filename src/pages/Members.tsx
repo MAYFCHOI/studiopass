@@ -49,7 +49,8 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       const text = '[THE DEPTH] ' + m.name + '님 회원 페이지예요. 출석할 때 이 화면의 QR 을 보여주세요.\n' + url;
       if (/Android|iPhone/i.test(navigator.userAgent)) {
         await s.recordMessage(m.id).catch(() => {});
-        window.location.assign('sms:' + m.phone + '?body=' + encodeURIComponent(text));
+        // iOS 메시지 앱은 '&body=' 를, 안드로이드는 '?body=' 를 읽는다
+        window.location.assign('sms:' + m.phone + (/iPhone|iPad|iPod/i.test(navigator.userAgent) ? '&' : '?') + 'body=' + encodeURIComponent(text));
         return;
       }
       const copied = await navigator.clipboard?.writeText(text).then(() => true, () => false);

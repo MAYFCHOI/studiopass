@@ -59,11 +59,12 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           const s = get();
           const keyOf = (p: { externalId?: string; payerPhone?: string; paidAt: string; amount?: number }) => p.externalId ? 'x:' + p.externalId : `k:${p.payerPhone}|${p.paidAt}|${p.amount}`;
           const seen = new Set(s.payments.map(keyOf));
-          let added = 0, dup = 0, matched = 0;
+          let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0;
           const fresh: Payment[] = [];
+          const refunds: string[] = [];
           for (const r of rows) {
             const k = keyOf(r);
-            if (seen.has(k)) { dup++; continue; }
+            if (seen.has(k)) { if (r.status === 'CANCELLED' && r.externalId) refunds.push(r.externalId); else dup++; continue; }
             seen.add(k);
             fresh.push({ ...r, id: uid(), payerPhone: normalizePhone(r.payerPhone) });
             added++;
@@ -74,7 +75,17 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             const m = get().members.find((x) => x.phone === p.payerPhone);
             if (m) { assign(p.id, m.id); matched++; }
           }
-          return { added, dup, matched };
+          // 서버와 같은 규칙: 같은 승인번호의 취소 행은 승인 결제를 취소, 출석에 쓰인 수강권이면 그대로 둔다
+          for (const x of refunds) {
+            const s2 = get();
+            const pay = s2.payments.find((p) => p.externalId === x && p.status === 'APPROVED');
+            if (!pay) { dup++; continue; }
+            const used = pay.passId ? s2.attendances.filter((a) => a.passId === pay.passId && !a.cancelledAt).length : 0;
+            if (used > 0) { cancelFailed++; continue; }
+            set({ payments: s2.payments.map((p) => (p.id === pay.id ? { ...p, status: 'CANCELLED', passId: undefined } : p)), passes: s2.passes.filter((y) => y.id !== pay.passId) });
+            cancelled++;
+          }
+          return { added, dup, matched, cancelled, cancelFailed };
         };
 
         return {
@@ -138,6 +149,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             });
           },
           settlement: async (month) => settle(get(), month),
+          settlementDetail: async () => null,
         };
       },
       {

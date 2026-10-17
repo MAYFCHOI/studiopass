@@ -127,6 +127,13 @@ export interface SettlementLine {
   proTickets: number; // 전문반 자유수강 출석(기록만)
 }
 
+export type ImportResult = { added: number; dup: number; matched: number; cancelled: number; cancelFailed: number };
+/** 정산 엑셀 상세(서버가 그 달 전체를 준다. bootstrap 의 62일 창과 무관). */
+export interface SettlementDetail {
+  attendances: { attendedAt: string; member: string | null; course: string | null; instructor: string | null; passKind: PassKind; value: number }[];
+  payments: { paidAt: string; member: string | null; payerName: string | null; productName: string; amount: number; status: Payment['status']; source: Payment['source']; externalId: string | null }[];
+}
+
 export interface NewPayment { memberId: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string }
 
 export interface Actions {
@@ -142,8 +149,9 @@ export interface Actions {
   sendAlimtalkLink(memberId: string): Promise<{ ok: boolean; error?: string }>;
   attend(input: { qr?: string; memberId?: string; courseId: string }): Promise<ScanResult>;
   cancelAttendance(id: string): Promise<void>;
-  /** 결제 적재. externalId 또는 (전화+시각+금액) 으로 중복 제거. 전화 매칭되면 회원 배정 + 수강권 생성. */
-  importPayments(rows: Omit<Payment, 'id'>[]): Promise<{ added: number; dup: number; matched: number }>;
+  /** 결제 적재. externalId 또는 (전화+시각+금액) 으로 중복 제거. 전화 매칭되면 회원 배정 + 수강권 생성.
+   *  같은 승인번호의 취소 행은 저장된 승인 결제를 취소(cancelled), 출석에 쓰인 수강권이면 그대로 두고 cancelFailed. */
+  importPayments(rows: Omit<Payment, 'id'>[]): Promise<ImportResult>;
   addPayment(p: NewPayment): Promise<void>;
   assignPayment(paymentId: string, memberId: string): Promise<void>;
   cancelPayment(paymentId: string): Promise<{ ok: true } | { ok: false; used: number }>;
@@ -151,6 +159,8 @@ export interface Actions {
   upsertCourse(c: Course): Promise<void>;
   upsertProduct(p: Product): Promise<void>;
   settlement(month: string): Promise<SettlementLine[]>;
+  /** 서버 모드: 그 달 엑셀 상세. 데모는 null(화면이 브라우저 데이터로 만든다). */
+  settlementDetail(month: string): Promise<SettlementDetail | null>;
   /** 데모 전용 */
   reset(): Promise<void>;
   /** 화면용 계산(동기): 지금 쓸 수 있는 수강권, 만료 임박 순 */

@@ -29,32 +29,38 @@ export function guessMapping(headers: string[]): Mapping {
   };
 }
 
-const toIso = (v: unknown): string => {
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === 'number') { const d = XLSX.SSF.parse_date_code(v); if (d) return new Date(d.y, d.m - 1, d.d, d.H, d.M, d.S).toISOString(); }
+/** 읽을 수 없는 날짜는 null. 지금 시각으로 채우면 엉뚱한 달 정산에 들어가므로 그 행은 건너뛴다. */
+const toIso = (v: unknown): string | null => {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v === 'number') { const d = XLSX.SSF.parse_date_code(v); if (d) return new Date(d.y, d.m - 1, d.d, d.H, d.M, d.S).toISOString(); return null; }
   const s = String(v ?? '').trim();
+  if (!s) return null;
   const d = dayjs(s.replace(/\./g, '-').replace(/-$/, ''));
-  return d.isValid() ? d.toISOString() : new Date().toISOString();
+  return d.isValid() ? d.toISOString() : null;
 };
 const toNum = (v: unknown) => Number(String(v ?? '').replace(/[^\d.-]/g, '')) || 0;
 
-export function toPayments(rows: Row[], m: Mapping): Omit<Payment, 'id'>[] {
-  return rows.map((r) => {
+/** rows 는 보낼 결제, badDate 는 결제 일시를 읽지 못해 뺀 행 수(사용자에게 알린다). */
+export function toPayments(rows: Row[], m: Mapping): { rows: Omit<Payment, 'id'>[]; badDate: number } {
+  let badDate = 0;
+  const out = rows.map((r) => {
     const st = String(m.status ? r[m.status] : '').trim();
     const amount = toNum(m.amount ? r[m.amount] : 0);
     const cancelled = /취소|cancel|환불|refund/i.test(st) || amount < 0;
+    const paidAt = toIso(m.paidAt ? r[m.paidAt] : undefined);
     return {
       source: 'KIOSK' as const,
       externalId: m.externalId ? String(r[m.externalId] ?? '').trim() || undefined : undefined,
-      paidAt: toIso(m.paidAt ? r[m.paidAt] : undefined),
+      paidAt: paidAt ?? '',
       amount: Math.abs(amount),
-      payerName: m.payerName ? String(r[m.payerName] ?? '').trim() : undefined,
+      payerName: m.payerName ? String(r[m.payerName] ?? '').trim().slice(0, 50) : undefined, // 서버 한도
       payerPhone: m.payerPhone ? normalizePhone(r[m.payerPhone] as string) : '',
-      productName: m.productName ? String(r[m.productName] ?? '').trim() : '',
+      productName: m.productName ? String(r[m.productName] ?? '').trim().slice(0, 100) : '',
       status: (cancelled ? 'CANCELLED' : 'APPROVED') as Payment['status'],
       raw: r,
     };
-  }).filter((p) => p.amount > 0 || p.productName);
+  }).filter((p) => p.amount > 0 || p.productName).filter((p) => (p.paidAt ? true : (badDate++, false)));
+  return { rows: out, badDate };
 }
 
 export function downloadXlsx(name: string, sheets: { name: string; rows: Record<string, unknown>[] }[]) {

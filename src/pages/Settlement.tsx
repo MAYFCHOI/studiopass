@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
-import type { SettlementLine } from '../types';
+import type { SettlementLine, SettlementDetail } from '../types';
 import { won } from '../lib/util';
 import { downloadXlsx } from '../lib/excel';
 import { Icon } from '../components/Icon';
@@ -32,12 +32,21 @@ export default function Settlement() {
   const revenue = lines.reduce((n, l) => n + l.revenue, 0);
   const label = dayjs(month + '-01');
 
-  const exportXlsx = () => {
-    const att = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM') === month);
+  /** 데모는 브라우저 데이터로, 서버 모드는 그 달 전체 상세를 서버에서 받는다(화면 데이터는 최근 62일뿐이라 지난달 이전이 빠진다). */
+  const localDetail = (): SettlementDetail => ({
+    attendances: s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM') === month).map((a) => {
+      const p = s.passes.find((x) => x.id === a.passId);
+      return { attendedAt: a.attendedAt, member: s.members.find((m) => m.id === a.memberId)?.name ?? null, course: s.courses.find((c) => c.id === a.courseId)?.name ?? null, instructor: s.instructors.find((i) => i.id === a.instructorId)?.name ?? null, passKind: p?.kind ?? 'COUNT', value: p && p.kind === 'COUNT' ? Math.round((p.price ?? 0) / p.totalCount) : 0 };
+    }),
+    payments: s.payments.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month).map((p) => ({ paidAt: p.paidAt, member: s.members.find((m) => m.id === p.memberId)?.name ?? null, payerName: p.payerName ?? null, productName: p.productName, amount: p.amount ?? 0, status: p.status, source: p.source, externalId: p.externalId ?? null })),
+  });
+  const exportXlsx = async () => {
+    let d: SettlementDetail;
+    try { d = (await s.settlementDetail(month)) ?? localDetail(); } catch { toast('상세 내역을 불러오지 못했어요. 다시 시도해 주세요'); return; }
     downloadXlsx(`정산_${month}.xlsx`, [
       { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor ?? 0}%` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
-      { name: '출석 상세', rows: att.map((a) => { const p = s.passes.find((x) => x.id === a.passId); return { 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === a.memberId)?.name, 수업: s.courses.find((c) => c.id === a.courseId)?.name, 강사: s.instructors.find((i) => i.id === a.instructorId)?.name, 수강권: p?.kind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: p && p.kind === 'COUNT' ? Math.round((p.price ?? 0) / p.totalCount) : 0 }; }) },
-      { name: '결제', rows: s.payments.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month).map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === p.memberId)?.name ?? '연결 안 됨', 결제자: p.payerName, 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId })) },
+      { name: '출석 상세', rows: d.attendances.map((a) => ({ 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: a.member ?? '', 수업: a.course ?? '', 강사: a.instructor ?? '', 수강권: a.passKind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: a.value })) },
+      { name: '결제', rows: d.payments.map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: p.member ?? '연결 안 됨', 결제자: p.payerName ?? '', 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId ?? '' })) },
     ]);
     toast('엑셀을 저장했어요');
   };
@@ -71,7 +80,7 @@ export default function Settlement() {
 
       <div className="ledger-tools">
         <div className="seg"><button aria-pressed={sort === 'pay'} onClick={() => setSort('pay')}>금액순</button><button aria-pressed={sort === 'name'} onClick={() => setSort('name')}>이름순</button></div>
-        <button className="btn ghost sm" disabled={failed} onClick={exportXlsx}><Icon name="download" size={16} />엑셀로 받기</button>
+        <button className="btn ghost sm" disabled={failed} onClick={() => { void exportXlsx(); }}><Icon name="download" size={16} />엑셀로 받기</button>
       </div>
 
       {!failed && <div className="ledger" role="table" aria-label="강사별 정산">

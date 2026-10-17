@@ -30,12 +30,25 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   };
   const doImport = async () => {
     if (!sheet) return;
-    const r = await s.importPayments(toPayments(sheet.rows, sheet.map)).catch(() => null);
+    const { rows, badDate } = toPayments(sheet.rows, sheet.map);
+    const r = rows.length ? await s.importPayments(rows).catch(() => null) : { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0 };
     if (!r) return;
     setSheet(null);
-    toast(`${r.added}건 추가 (중복 ${r.dup}) · 회원 자동 연결 ${r.matched}건`);
+    const extra = [
+      r.cancelled > 0 && `환불 ${r.cancelled}건 반영`,
+      r.cancelFailed > 0 && `환불 ${r.cancelFailed}건은 출석이 있어 확인 필요`,
+      badDate > 0 && `결제 일시를 읽지 못한 ${badDate}행은 건너뜀`,
+    ].filter(Boolean).join(' · ');
+    toast(`${r.added}건 추가 (중복 ${r.dup}) · 회원 자동 연결 ${r.matched}건${extra ? ' · ' + extra : ''}`);
   };
-  const queue = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+  /** 회원은 연결됐는데 수강권이 없는 결제: 키오스크 상품명이 어떤 수강권 상품과도 맞지 않았다. */
+  const noPass = (p: Payment) => p.status === 'APPROVED' && !!p.memberId && !p.passId;
+  const queue = s.payments.filter((p) => p.status === 'APPROVED' && (!p.memberId || !p.passId)).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+  /** 연결 후 수강권이 실제로 생겼는지는 저장소에서 다시 본다(상품명이 안 맞으면 회원만 연결된다). */
+  const linked = (paymentId: string, who: string) => {
+    const made = !!useStore.getState().payments.find((x) => x.id === paymentId)?.passId;
+    toast(made ? `${who}에게 연결, 수강권이 생겼어요` : `${who}에게 연결했지만 상품명이 맞는 수강권 상품이 없어 수강권은 아직 없어요. 설정에서 상품명을 키오스크와 같게 고친 뒤 다시 연결해 주세요`);
+  };
   const all = [...s.payments].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const name = (id?: string) => s.members.find((m) => m.id === id)?.name;
   const month = s.payments.filter((p) => p.status === 'APPROVED' && dayjs(p.paidAt).format('YYYY-MM') === dayjs().format('YYYY-MM')).reduce((n, p) => n + (p.amount ?? 0), 0);
@@ -60,8 +73,8 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         <div className="list">
           {queue.map((p) => (
             <button className="row" key={p.id} onClick={() => setAssign(p)}>
-              <div className="main"><div className="t">{p.payerName || '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && !s.members.some((m) => m.phone === p.payerPhone) && ' · 일치 회원 없음'}</div></div>
-              <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">회원 연결</span></div>
+              <div className="main"><div className="t">{p.payerName || '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && !s.members.some((m) => m.phone === p.payerPhone) && ' · 일치 회원 없음'}</>}</div></div>
+              <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{noPass(p) ? '상품 미확인' : '회원 연결'}</span></div>
             </button>
           ))}
         </div>
@@ -71,7 +84,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
           {all.slice(0, 100).map((p) => (
             <div className="row" key={p.id} style={p.status === 'CANCELLED' ? { opacity: .45 } : undefined}>
               <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : '수동'}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}</div></div>
-              <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}{p.memberId ? <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button> : p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>회원 연결</button>}</div>
+              <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}{p.memberId ? <>{noPass(p) && <button className="chip amber" onClick={() => setAssign(p)}>상품 미확인</button>}<button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button></> : p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>회원 연결</button>}</div>
             </div>
           ))}
         </div>
@@ -93,10 +106,19 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
       {assign && (
         <Sheet onClose={() => { setAssign(null); setQ(''); }} title="누구의 결제인가요?">
           <p className="sub">{assign.payerName || '이름 없음'} · {assign.productName}{maybeWon(assign.amount, ' · ')}{assign.payerPhone && ` · ${fmtPhone(assign.payerPhone)}`}</p>
+          {noPass(assign) && (
+            <div className="notice" role="note">
+              상품 미확인: {name(assign.memberId) ?? '회원'}에게 연결됐지만 키오스크 상품명 "{assign.productName}" 이 어떤 수강권 상품과도 맞지 않아 수강권이 만들어지지 않았어요. 설정에서 수강권 상품 이름을 키오스크와 똑같이 고친 뒤 다시 연결해 주세요.
+              <div style={{ marginTop: 8 }}><button className="btn sm primary" onClick={() => {
+                const who = name(assign.memberId) ?? '회원';
+                s.assignPayment(assign.id, assign.memberId!).then(() => { setAssign(null); setQ(''); linked(assign.id, who); }, () => {});
+              }}>다시 연결</button></div>
+            </div>
+          )}
           <input className="input" autoFocus placeholder="회원 이름 검색" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="list">
             {s.members.filter((m) => !q.trim() ? (assign.payerName ? m.name.includes(assign.payerName) || m.phone.slice(-4) === assign.payerPhone?.slice(-4) : true) : m.name.includes(q.trim())).slice(0, 8).map((m) => (
-              <button className="row" key={m.id} onClick={() => { s.assignPayment(assign.id, m.id).then(() => { setAssign(null); setQ(''); toast(`${m.name}에게 연결, 수강권이 생겼어요`); }, () => {}); }}>
+              <button className="row" key={m.id} onClick={() => { s.assignPayment(assign.id, m.id).then(() => { setAssign(null); setQ(''); linked(assign.id, m.name); }, () => {}); }}>
                 <div className="avatar">{m.name.slice(-2)}</div><div className="main"><div className="t">{m.name}</div><div className="d">{fmtPhone(m.phone)} · {m.memberNo}</div></div>
               </button>
             ))}
