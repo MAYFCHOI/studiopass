@@ -1,0 +1,17 @@
+.git
+.github
+.omc
+.superpowers
+**/node_modules
+dist
+server/dist
+server/data
+*.db
+*.db-*
+.env
+.env.*
+!.env.demo
+docs
+*.xlsx
+*.csv
+.DS_Store

@@ -1,0 +1,13 @@
+{$DOMAIN} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Frame-Options DENY
+		-Server
+	}
+	# Caddy replaces any client-sent X-Forwarded-For (no trusted_proxies set),
+	# so the api sees the real client address as the first entry.
+	reverse_proxy api:8787
+}

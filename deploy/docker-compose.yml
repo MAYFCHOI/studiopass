@@ -1,0 +1,35 @@
+# Lives at /srv/studiopass/app on the host. .env next to it holds DOMAIN and TAG
+# (written by deploy/remote.sh). Only caddy publishes ports: the api must not be
+# reachable directly, because the login limiter trusts X-Forwarded-For from caddy.
+name: studiopass
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+services:
+  api:
+    image: studiopass:${TAG:?TAG is required}
+    build:
+      context: /srv/studiopass/src/${TAG}
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SP_ORIGIN=https://${DOMAIN:?DOMAIN is required}
+    volumes: [ "/srv/studiopass/data:/data" ]
+    expose: [ "8787" ]
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8787/api/healthz" ]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 20s
+    logging: *logging
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on: [ api ]
+    ports: [ "80:80", "443:443" ]
+    environment: [ "DOMAIN=${DOMAIN}" ]
+    volumes: [ "./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config" ]
+    logging: *logging
+volumes: { caddy_data: {}, caddy_config: {} }

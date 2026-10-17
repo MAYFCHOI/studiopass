@@ -1,0 +1,7 @@
+# Installed by bootstrap-host.sh / remote.sh as /etc/cron.d/studiopass. Times are UTC.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# 18:30 UTC = 03:30 KST daily DB backup to the Lightsail bucket
+30 18 * * * root /srv/studiopass/app/backup.sh daily >/dev/null 2>&1
+# health check every 5 minutes
+*/5 * * * * root /srv/studiopass/app/healthcheck.sh >/dev/null 2>&1
