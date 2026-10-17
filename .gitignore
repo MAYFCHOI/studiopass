@@ -7,3 +7,6 @@ __pycache__/
 !docs/samples/*.csv
 .DS_Store
 dist/
+server/node_modules
+server/data
+*.db
