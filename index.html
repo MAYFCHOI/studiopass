@@ -12,12 +12,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,100..125,700..900;1,100..125,700..900&display=swap" />
     <title>THE DEPTH · studiopass</title>
-    <script>
-      // 배포 직후 캐시된 index 가 사라진 번들을 가리키면 한 번 자동 새로고침
-      window.addEventListener('error', function (e) {
-        var t = e.target; if (t && t.tagName === 'SCRIPT' && !sessionStorage.getItem('sp-reloaded')) { sessionStorage.setItem('sp-reloaded', '1'); location.reload(); }
-      }, true);
-    </script>
+    <script src="/reload-guard.js"></script>
   </head>
   <body>
     <div id="root"></div>

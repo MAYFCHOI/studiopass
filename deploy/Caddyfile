@@ -1,12 +1,22 @@
 {$DOMAIN} {
 	encode gzip
+	# CSP: scripts only from this origin (no inline script; index.html loads /reload-guard.js), fonts/styles from
+	# the Pretendard (jsdelivr) and Google Fonts hosts, data:/blob: images for the QR canvas and downloads.
+	# Permissions-Policy: the scan page needs the camera, nothing else.
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		Referrer-Policy same-origin
 		X-Frame-Options DENY
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' data: https://cdn.jsdelivr.net https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self'; manifest-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
 		-Server
 	}
+	# The member token is in the /m/* path: never send it as a referrer. Two disjoint matchers so the
+	# site-wide value cannot overwrite the member one; '>' defers the write so it replaces the api's own value.
+	@member path /m/*
+	@notmember not path /m/*
+	header @member >Referrer-Policy no-referrer
+	header @notmember >Referrer-Policy same-origin
 	# Caddy replaces any client-sent X-Forwarded-For (no trusted_proxies set),
 	# so the api sees the real client address as the first entry.
 	reverse_proxy api:8787
