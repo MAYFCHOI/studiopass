@@ -7,7 +7,8 @@ import { attend, cancelAttendance } from '../domain/attendance.js';
 import { tierFor } from '../domain/tiers.js';
 import { parseQr } from '../qr.js';
 import { issueLink } from '../links.js';
-import { toMember } from '../serialize.js';
+import { toMember, toAttendance, toPayment, toPass } from '../serialize.js';
+import { idemKey, idemGet, idemPut } from '../idempotency.js';
 import { alimtalkOn, passNotifier, sendLinkAlimtalk } from '../notify/link.js';
 import { type AppEnv, type Deps, clock, body, bad, notFound, str, optStr, maxLen, LIMITS, ownerOnly, clientIp } from './common.js';
 
@@ -23,12 +24,24 @@ const memberOut = (db: Db, id: string) => {
 
 export function memberRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db; const onPass = passNotifier(d);
+  /** 같은 번호를 쓰는 다른 회원 수(자동 연결이 안 되는 이유가 된다). */
+  const samePhone = (id: string, phone: string) => (phone ? (db.prepare('select count(*) n from members where phone=? and id<>? and erased_at is null').get(phone, id) as { n: number }).n : 0);
+  /** 전화번호가 생기거나 바뀌면 그 번호로 기다리던 결제를 연결한다(번호가 한 사람 것일 때만, 가입 때와 같은 규칙). */
+  const pickUpOpen = (id: string, phone: string, staffId: string) => {
+    if (!phone || samePhone(id, phone) > 0) return 0;
+    const open = db.prepare("select id from payments where payer_phone=? and member_id is null and pass_id is null and status='APPROVED' order by paid_at").all(phone) as { id: string }[];
+    for (const p of open) assignPayment(db, p.id, id, staffId, onPass);
+    return open.length;
+  };
 
   r.post('/members', async (c) => {
     const b = await body(c);
     if (!b || !str(b.name) || !maxLen(b.name, LIMITS.name) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)) return bad(c);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.phone);
     const year = kstDate(clock(d)).slice(0, 4);
+    // 같은 Idempotency-Key 로 다시 오면 처음 만든 회원을 그대로 돌려준다(두 번 누름에 회원이 둘 생기지 않게).
+    const key = idemKey(c); const hit = idemGet(db, key, staffId, 'members');
+    if (hit) return c.json(hit.body as object, hit.status as 200);
     const { id, assigned } = db.transaction(() => {
       const last = db.prepare("select member_no from members where member_no like ? order by member_no desc limit 1").get(year + '-%') as { member_no: string } | undefined;
       const seq = (last ? Number(last.member_no.slice(5)) : 0) + 1;
@@ -40,9 +53,10 @@ export function memberRoutes(d: Deps) {
         const open = db.prepare("select id from payments where payer_phone=? and member_id is null and pass_id is null and status='APPROVED' order by paid_at").all(phone) as { id: string }[];
         for (const p of open) { assignPayment(db, p.id, id, staffId, onPass); assigned++; }
       }
+      idemPut(db, key, staffId, 'members', 200, { ...memberOut(db, id)!, assigned, samePhone: samePhone(id, phone) });
       return { id, assigned };
     })();
-    return c.json({ ...memberOut(db, id)!, assigned });
+    return c.json({ ...memberOut(db, id)!, assigned, samePhone: samePhone(id, phone) });
   });
 
   r.patch('/members/:id', async (c) => {
@@ -51,9 +65,13 @@ export function memberRoutes(d: Deps) {
     const m = db.prepare('select * from members where id=?').get(id) as any;
     if (!m) return notFound(c);
     if (m.erased_at) return erased(c);
-    db.prepare('update members set name=?, phone=?, memo=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, b.phone !== undefined ? normalizePhone(b.phone) : m.phone, b.memo !== undefined ? b.memo : m.memo, id);
-    audit(db, c.get('me').staffId, 'member.update', 'member', id, { fields: Object.keys(b).filter((k) => ['name', 'phone', 'memo'].includes(k)) });
-    return c.json(memberOut(db, id));
+    const phone = b.phone !== undefined ? normalizePhone(b.phone) : m.phone;
+    const assigned = db.transaction(() => {
+      db.prepare('update members set name=?, phone=?, memo=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, phone, b.memo !== undefined ? b.memo : m.memo, id);
+      audit(db, c.get('me').staffId, 'member.update', 'member', id, { fields: Object.keys(b).filter((k) => ['name', 'phone', 'memo'].includes(k)) });
+      return phone !== m.phone ? pickUpOpen(id, phone, c.get('me').staffId) : 0;
+    })();
+    return c.json({ ...memberOut(db, id)!, assigned, samePhone: samePhone(id, phone) });
   });
 
   // 개인정보 파기: 이름·전화·메모와 회원 링크, 이 회원 결제의 결제자 이름·전화를 지운다.
@@ -70,6 +88,17 @@ export function memberRoutes(d: Deps) {
       audit(db, staffId, 'member.erase', 'member', id, { payments: n }, clientIp(c));
     })();
     return c.json(memberOut(db, id));
+  });
+
+  // 회원 상세의 전체 기록(bootstrap 은 최근 62일만 준다). 금액은 원장에게만.
+  r.get('/members/:id/history', (c) => {
+    const id = c.req.param('id'); const role = c.get('me').role;
+    if (!db.prepare('select 1 from members where id=?').get(id)) return notFound(c);
+    return c.json({
+      attendances: db.prepare('select * from attendances where member_id=? order by attended_at desc limit 2000').all(id).map(toAttendance),
+      payments: db.prepare('select * from payments where member_id=? order by paid_at desc limit 1000').all(id).map((x) => toPayment(x, role)),
+      passes: db.prepare('select * from passes where member_id=? order by created_at').all(id).map((x) => toPass(x, role)),
+    });
   });
 
   r.post('/members/:id/link', (c) => {
@@ -111,7 +140,9 @@ export function memberRoutes(d: Deps) {
     } else memberId = b.memberId;
     const res = attend(db, { memberId, courseId: b.courseId, staffId: c.get('me').staffId, now: clock(d) });
     const m = db.prepare('select id, name from members where id=? and erased_at is null').get(memberId) as { id: string; name: string } | undefined;
-    return c.json(m ? { ...res, member: { id: m.id, name: m.name } } : res);
+    // The created attendance lets the screen update its lists without downloading /bootstrap again.
+    const extra = res.ok ? { attendance: toAttendance(db.prepare('select * from attendances where id=?').get(res.attendanceId)) } : {};
+    return c.json(m ? { ...res, ...extra, member: { id: m.id, name: m.name } } : { ...res, ...extra });
   });
 
   r.post('/attendances/:id/cancel', (c) => c.json({ ok: cancelAttendance(db, c.req.param('id'), c.get('me').staffId) }));

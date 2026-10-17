@@ -127,7 +127,7 @@ describe('api wiring', () => {
     const { req, login } = mk({ alimtalk: ON, fetchImpl: f }); const c = await login();
     const m = await (await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c)).json();
     expect(calls).toHaveLength(0);
-    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toMatchObject({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
     await flush(); await flush();
     expect(calls).toHaveLength(1);
     const msg = JSON.parse(String(calls[0].init.body)).messages[0];
@@ -171,7 +171,7 @@ describe('api wiring', () => {
     const boom = (async () => { throw new TypeError('fetch failed'); }) as typeof fetch;
     const { req, login } = mk({ alimtalk: ON, fetchImpl: boom }); const c = await login();
     await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, c);
-    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toEqual({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk('k1', '01011112222')] } }, c)).json()).toMatchObject({ added: 1, dup: 0, matched: 1, cancelled: 0, cancelFailed: 0 });
     await flush(); await flush();
     expect(db.prepare('select count(*) n from passes').get()).toEqual({ n: 1 });
     expect(db.prepare('select status, error from messages').all()).toEqual([{ status: 'FAILED', error: 'NETWORK' }]);

@@ -78,7 +78,9 @@ describe('roles and validation', () => {
   it('rejects bad bodies and too many import rows', async () => {
     const d = await login('desk');
     expect((await req('/members', { method: 'POST', body: { phone: '010' } }, d)).status).toBe(400);
-    expect((await req('/payments/import', { method: 'POST', body: { rows: [{ source: 'KIOSK', paidAt: 'x', amount: 'a', productName: 'p' }] } }, d)).status).toBe(400);
+    // a bad row is reported, not fatal (H6)
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [{ source: 'KIOSK', paidAt: 'x', amount: 'a', productName: 'p' }] } }, d)).json()).toMatchObject({ added: 0, rejectedCount: 1, rejected: [{ index: 0, reason: 'BAD_DATE' }] });
+    expect((await req('/payments/import', { method: 'POST', body: { rows: 'x' } }, d)).status).toBe(400);
     const rows = Array.from({ length: 2001 }, (_, i) => kiosk(String(i), '01000000003'));
     expect(await (await req('/payments/import', { method: 'POST', body: { rows } }, d)).json()).toEqual({ error: 'TOO_MANY' });
     expect((await req('/attendances', { method: 'POST', body: { courseId: 'x' } }, d)).status).toBe(400);
@@ -259,7 +261,7 @@ describe('final review fixes', () => {
     expect((await req('/members', { method: 'POST', body: { name: '가'.repeat(51) } }, o)).status).toBe(400);
     expect((await req('/members', { method: 'POST', body: { name: '가', memo: 'm'.repeat(501) } }, o)).status).toBe(400);
     expect((await req('/payments', { method: 'POST', body: { amount: 1000, productName: 'p'.repeat(101) } }, o)).status).toBe(400);
-    expect((await req('/payments/import', { method: 'POST', body: { rows: [{ ...kiosk('L1', '010'), payerName: 'n'.repeat(51) }] } }, o)).status).toBe(400);
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [{ ...kiosk('L1', '010'), payerName: 'n'.repeat(51) }] } }, o)).json()).toMatchObject({ added: 0, rejected: [{ index: 0, reason: 'NAME_TOO_LONG' }] });
   });
   it('static cache headers and member page referrer policy', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sp-static-'));

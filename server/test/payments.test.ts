@@ -7,8 +7,8 @@ const row = (o: any = {}) => ({ source: 'KIOSK' as const, externalId: '30000001'
 describe('payments', () => {
   it('dedupes by approval number, matches phone, creates pass from product', () => {
     const { db, member } = makeDb(); const m = member('김서연', '01011112222');
-    expect(ingestPayments(db, [row(), row()], null)).toEqual({ added: 1, dup: 1, matched: 1, cancelled: 0, cancelFailed: 0 });
-    expect(ingestPayments(db, [row()], null)).toEqual({ added: 0, dup: 1, matched: 0, cancelled: 0, cancelFailed: 0 });
+    expect(ingestPayments(db, [row(), row()], null)).toMatchObject({ added: 1, dup: 1, matched: 1, cancelled: 0, cancelFailed: 0 });
+    expect(ingestPayments(db, [row()], null)).toMatchObject({ added: 0, dup: 1, matched: 0, cancelled: 0, cancelFailed: 0 });
     const p = db.prepare('select * from passes where member_id=?').get(m) as any;
     expect(p).toMatchObject({ kind: 'COUNT', total_count: 8, remaining: 8, valid_from: '2026-10-19', valid_to: '2026-12-18', price: 180000 });
   });
@@ -21,8 +21,9 @@ describe('payments', () => {
     ingestPayments(db, [row({ payerPhone: '' })], null);
     const pay = db.prepare('select id, member_id from payments').get() as any;
     expect(pay.member_id).toBeNull();
-    expect(assignPayment(db, pay.id, m, 'st').passId).toBeTruthy();
-    expect(assignPayment(db, pay.id, m, 'st').passId).toBeNull(); // 두 번째는 아무것도 안 만든다
+    const first = assignPayment(db, pay.id, m, 'st').passId;
+    expect(first).toBeTruthy();
+    expect(assignPayment(db, pay.id, m, 'st').passId).toBe(first); // 두 번째는 아무것도 안 만들고 같은 수강권을 돌려준다
     expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(1);
   });
   it('unknown product name keeps payment but creates no pass', () => {
@@ -74,7 +75,7 @@ describe('payments', () => {
     const { db, member } = makeDb(); member();
     expect(ingestPayments(db, [row()], null)).toMatchObject({ added: 1, matched: 1 });
     expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(1);
-    expect(ingestPayments(db, [row({ status: 'CANCELLED' })], null)).toEqual({ added: 0, dup: 0, matched: 0, cancelled: 1, cancelFailed: 0 });
+    expect(ingestPayments(db, [row({ status: 'CANCELLED' })], null)).toMatchObject({ added: 0, dup: 0, matched: 0, cancelled: 1, cancelFailed: 0 });
     expect((db.prepare('select status, pass_id from payments').get() as any)).toEqual({ status: 'CANCELLED', pass_id: null });
     expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(0);
     // the same refund row again is a plain duplicate
@@ -82,13 +83,13 @@ describe('payments', () => {
   });
   it('approval and refund in one file: pass is created then removed', () => {
     const { db, member } = makeDb(); member();
-    expect(ingestPayments(db, [row(), row({ status: 'CANCELLED' })], null)).toEqual({ added: 1, dup: 0, matched: 1, cancelled: 1, cancelFailed: 0 });
+    expect(ingestPayments(db, [row(), row({ status: 'CANCELLED' })], null)).toMatchObject({ added: 1, dup: 0, matched: 1, cancelled: 1, cancelFailed: 0 });
     expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(0);
   });
   it('a refund row for a pass already used stays APPROVED and is counted as cancelFailed', () => {
     const { db, member, course } = makeDb(); const m = member(); ingestPayments(db, [row()], null);
     attend(db, { memberId: m, courseId: course().id, staffId: null, now: new Date('2026-10-19T10:30:00Z') });
-    expect(ingestPayments(db, [row({ status: 'CANCELLED' })], null)).toEqual({ added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 1 });
+    expect(ingestPayments(db, [row({ status: 'CANCELLED' })], null)).toMatchObject({ added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 1 });
     expect((db.prepare('select status from payments').get() as any).status).toBe('APPROVED');
     expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(1);
   });

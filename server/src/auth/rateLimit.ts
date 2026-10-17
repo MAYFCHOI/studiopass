@@ -14,6 +14,11 @@ export class LoginLimiter {
     while (this.m.size > this.maxKeys) this.m.delete(this.m.keys().next().value!);
     return true;
   }
+  /** True when key already has max attempts in the window (does not record one). */
+  blocked(key: string, now = Date.now()) {
+    this.sweep(now);
+    return (this.m.get(key) ?? []).filter((t) => now - t < this.windowMs).length >= this.max;
+  }
   reset(key: string) { this.m.delete(key); }
   get size() { return this.m.size; }
   private sweep(now: number) {

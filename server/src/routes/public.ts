@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { statfsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { kstDate, maskName } from '../util.js';
 import { tierFor } from '../domain/tiers.js';
 import { qrPayload } from '../qr.js';
@@ -8,7 +10,13 @@ import { type AppEnv, type Deps, clock } from './common.js';
 /** Unauthenticated routes. The member page response never carries money, phone or memo. */
 export function publicRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db;
-  r.get('/healthz', (c) => { db.prepare('select 1').get(); return c.json({ ok: true }); });
+  // A tiny write, so a full disk or a read-only data dir fails healthz (and the deploy gate / healthcheck) at once.
+  r.get('/healthz', (c) => {
+    db.prepare("insert into settings(key,value) values('healthz_at',?) on conflict(key) do update set value=excluded.value").run(new Date().toISOString());
+    let freeMb: number | undefined;
+    try { const f = db.name && db.name !== ':memory:' ? statfsSync(dirname(db.name)) : null; if (f) freeMb = Math.floor((f.bavail * f.bsize) / 1048576); } catch { /* not fatal */ }
+    return c.json({ ok: true, ...(freeMb !== undefined ? { freeMb } : {}) });
+  });
   r.get('/public/m/:token', (c) => {
     c.header('Cache-Control', 'no-store');
     const memberId = memberIdForToken(db, c.req.param('token'));

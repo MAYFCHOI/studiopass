@@ -26,19 +26,21 @@ export { clientIp };
 let dummyHash: Promise<string> | null = null;
 export function authRoutes(d: Deps) {
   const r = new Hono<AppEnv>();
-  const limiter = new LoginLimiter(); // per ip|loginId: 5 tries / 10 min, reset on success
-  const ipLimiter = new LoginLimiter(30); // per ip across all ids: 30 tries / 10 min, so rotating ids does not help
+  // Only real credential failures (401 INVALID) are counted: a BUSY 429 or a server error never locks the right password out.
+  const limiter = new LoginLimiter(); // per ip|loginId: 5 failures / 10 min, reset on success
+  const ipLimiter = new LoginLimiter(30); // per ip across all ids: 30 failures / 10 min, so rotating ids does not help
   const gate = new Gate(2); // scrypt costs ~32 MB and tens of ms; at most 2 in flight, the rest get 429 BUSY
   r.post('/login', async (c) => {
     const b = await body(c);
     if (!b || !str(b.loginId) || b.loginId.length > LIMITS.loginId || typeof b.password !== 'string' || b.password.length > LIMITS.password) return c.json({ error: 'BAD_REQUEST' }, 400);
     const ip = clientIp(c); const key = `${ip}|${b.loginId}`;
-    if (!ipLimiter.hit(ip) || !limiter.hit(key)) return c.json({ error: 'LIMIT' }, 429);
+    if (ipLimiter.blocked(ip) || limiter.blocked(key)) return c.json({ error: 'LIMIT' }, 429);
     const s = d.db.prepare('select id, name, role, pw_hash from staff where login_id=? and active=1').get(b.loginId) as { id: string; name: string; role: 'OWNER' | 'DESK'; pw_hash: string } | undefined;
     // Unknown login ids still pay one scrypt so response time does not reveal which ids exist.
     const res = await gate.tryRun(async () => (s ? verifyPassword(b.password, s.pw_hash) : (await verifyPassword(b.password, await (dummyHash ??= hashPassword('dummy-password'))), false)));
     if (!res) return c.json({ error: 'BUSY' }, 429);
     if (!s || !res.value) {
+      ipLimiter.hit(ip); limiter.hit(key);
       audit(d.db, null, 'auth.login_fail', 'staff', s?.id ?? null, { loginId: b.loginId }, ip);
       return c.json({ error: 'INVALID' }, 401);
     }

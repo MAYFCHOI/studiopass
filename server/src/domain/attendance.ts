@@ -3,8 +3,8 @@ import type { Db } from '../db.js';
 import { newId, nowIso, kstDate } from '../util.js';
 import { audit } from '../audit.js';
 export type PassRow = { id: string; kind: 'COUNT' | 'PERIOD'; course_id: string | null; remaining: number; total_count: number; valid_from: string; valid_to: string };
-export type AttendFail = 'UNKNOWN_MEMBER' | 'UNKNOWN_COURSE' | 'ALREADY' | 'PRO_ONLY' | 'EMPTY' | 'EXPIRED' | 'NO_PASS';
-export type AttendResult = { ok: true; attendanceId: string; memberId: string; passId: string; remaining: number; total: number; validTo: string } | { ok: false; reason: AttendFail; memberId?: string };
+export type AttendFail = 'UNKNOWN_MEMBER' | 'UNKNOWN_COURSE' | 'INACTIVE_COURSE' | 'ALREADY' | 'PRO_ONLY' | 'EMPTY' | 'EXPIRED' | 'NO_PASS';
+export type AttendResult = { ok: true; attendanceId: string; memberId: string; passId: string; remaining: number; total: number; validTo: string } | { ok: false; reason: AttendFail; memberId?: string; remaining?: number; total?: number; validTo?: string };
 const fits = (p: PassRow, c: { id: string; kind: string }) => (p.kind === 'PERIOD' ? true : c.kind === 'PRO' ? false : p.course_id ? p.course_id === c.id : true);
 const rank = (p: PassRow) => (p.kind === 'PERIOD' ? 2 : p.course_id ? 0 : 1);
 export function pickPass(passes: PassRow[], course: { id: string; kind: 'GENERAL' | 'PRO' }, today: string) {
@@ -15,9 +15,12 @@ export function attend(db: Db, a: { memberId: string; courseId: string; staffId:
   const now = a.now ?? new Date(); const today = kstDate(now);
   return db.transaction((): AttendResult => {
     if (!db.prepare('select 1 from members where id=? and erased_at is null').get(a.memberId)) return { ok: false, reason: 'UNKNOWN_MEMBER' };
-    const course = db.prepare('select id, kind, instructor_id from courses where id=?').get(a.courseId) as { id: string; kind: 'GENERAL' | 'PRO'; instructor_id: string } | undefined;
+    const course = db.prepare('select id, kind, instructor_id, active from courses where id=?').get(a.courseId) as { id: string; kind: 'GENERAL' | 'PRO'; instructor_id: string; active: number } | undefined;
     if (!course) return { ok: false, reason: 'UNKNOWN_COURSE', memberId: a.memberId };
-    if (db.prepare('select 1 from attendances where member_id=? and course_id=? and attended_on=? and cancelled_at is null').get(a.memberId, course.id, today)) return { ok: false, reason: 'ALREADY', memberId: a.memberId };
+    if (!course.active) return { ok: false, reason: 'INACTIVE_COURSE', memberId: a.memberId };
+    const prior = db.prepare('select p.remaining, p.total_count, p.valid_to from attendances a join passes p on p.id=a.pass_id where a.member_id=? and a.course_id=? and a.attended_on=? and a.cancelled_at is null').get(a.memberId, course.id, today) as { remaining: number; total_count: number; valid_to: string } | undefined;
+    // A retried scan whose first response was lost still shows the remaining count.
+    if (prior) return { ok: false, reason: 'ALREADY', memberId: a.memberId, remaining: prior.remaining, total: prior.total_count, validTo: prior.valid_to };
     const passes = db.prepare('select id, kind, course_id, remaining, total_count, valid_from, valid_to from passes where member_id=?').all(a.memberId) as PassRow[];
     const p = pickPass(passes, course, today);
     if (!p) {

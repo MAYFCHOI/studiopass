@@ -5,7 +5,7 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const tables = db.prepare("select name from sqlite_master where type='table'").all().map((r: any) => r.name);
     for (const t of ['staff','sessions','members','member_links','instructors','courses','products','payments','passes','attendances','tiers','messages','audit_log','settings','schema_migrations']) expect(tables).toContain(t);
-    expect(db.prepare('select count(*) n from schema_migrations').get()).toEqual({ n: 3 });
+    expect(db.prepare('select count(*) n from schema_migrations').get()).toEqual({ n: 4 });
   });
   it('blocks a second active attendance for the same member, course and day', () => {
     const db = openDb(':memory:');
