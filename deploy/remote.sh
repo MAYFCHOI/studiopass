@@ -61,6 +61,17 @@ up_tag() { # $1 = tag. Returns non-zero (never exits) so callers can roll back a
   TAG="$1" compose up -d --no-build --remove-orphans
 }
 
+reload_caddy() { # apply the shipped Caddyfile. Failure is logged, never fatal (the site keeps serving the old config).
+  # compose up does not recreate caddy when only the Caddyfile changed. The file is a single-file bind mount, and
+  # install/mv replace the host file with a new inode, so the running container can still see the old one: then a
+  # reload alone would reread stale content and a restart (re-resolves the mount, ~1s blip) is needed instead.
+  if compose exec -T caddy cat /etc/caddy/Caddyfile 2>/dev/null | cmp -s - "$APP/Caddyfile"; then
+    if compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then say "caddy reloaded"
+    else say "WARNING: caddy reload failed; check 'docker compose logs caddy'"; fi
+  elif compose restart caddy >/dev/null 2>&1; then say "caddy restarted to pick up the new Caddyfile"
+  else say "WARNING: caddy restart failed; check 'docker compose logs caddy'"; fi
+}
+
 install_crontab() { if [ -f "$APP/crontab" ]; then install -m 644 "$APP/crontab" "$CRON_D/studiopass"; fi; }
 
 install_app_files() { # $1 = source dir of the shipped deploy/
@@ -120,6 +131,7 @@ cmd_deploy() {
     echo "$tag" >"$SP_ROOT/CURRENT_TAG"
     app_commit "$changed"
     say "healthz ok, $tag is live"
+    reload_caddy
     prune_old
     return 0
   fi
@@ -132,6 +144,7 @@ cmd_deploy() {
     if [ -n "$prev_before" ]; then echo "$prev_before" >"$SP_ROOT/PREV_TAG"; else rm -f "$SP_ROOT/PREV_TAG"; fi
     if up_tag "$cur" && healthy; then
       say "rolled back, $cur is live"
+      reload_caddy
       notify "studiopass 배포 실패, 이전 버전으로 되돌림"
     else
       say "WARNING: rollback to $cur failed too"
@@ -164,6 +177,7 @@ cmd_rollback() {
   echo "$prev" >"$SP_ROOT/CURRENT_TAG"
   echo "$cur" >"$SP_ROOT/PREV_TAG"   # a second --rollback goes forward again
   healthy && say "healthz ok, $prev is live" || die "healthz failed after rollback"
+  reload_caddy
 }
 
 cmd_restore() {

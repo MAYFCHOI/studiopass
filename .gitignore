@@ -11,3 +11,5 @@ dist/
 server/node_modules
 server/data
 *.db
+*.db-wal
+*.db-shm
