@@ -89,6 +89,35 @@ R="$(api "$OWNER" POST /api/attendances "{\"qr\":\"$QR\",\"courseId\":\"$COURSE\
 check "second scan -> ALREADY" '.ok==false and .reason=="ALREADY"' "$R"
 check "remaining still 7 after second scan" '.passes[0].remaining==7 and .attendCount==1' "$(pub)"
 
+# Wave R: shared name search, Idempotency-Key, refund with its own approval number, per-row import validation
+P2="010-7777-1234"
+M2="$(api "$OWNER" POST /api/members "{\"name\":\"이도윤\",\"phone\":\"$P2\"}" | jq -r .id)"
+api "$OWNER" POST /api/members '{"name":"박서준","phone":"010-8888-1234"}' >/dev/null
+NAMES="$(api "$OWNER" GET /api/bootstrap | jq -c '[.members[]|{name,phone,memberNo}]' | (cd "$ROOT/server" && npx --no-install tsx -e "
+import { matchMember } from '../src/lib/search.ts';
+let s = ''; process.stdin.on('data', (d) => (s += d)).on('end', () => {
+  const ms = JSON.parse(s);
+  console.log(JSON.stringify({ name: ms.filter((m: any) => matchMember(m, '이도')).map((m: any) => m.name), tail: ms.filter((m: any) => matchMember(m, '1234')).length }));
+});" 2>/dev/null))"
+check "name search '이도' (no digits) matches only 이도윤; '1234' matches the phone tails" '.name==["이도윤"] and .tail>=2' "$NAMES"
+idem_pay() { curl -s -X POST -H "Cookie: $OWNER" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' -H 'Idempotency-Key: e2e-form-key-0001' \
+  -d "{\"memberId\":\"$M2\",\"amount\":180000,\"productName\":\"정규 클래스 8회권\"}" "$ORIGIN/api/payments"; }
+idem_pay >"$TMP/i1.json" & W1=$!; idem_pay >"$TMP/i2.json" & W2=$!; wait "$W1" "$W2"   # not bare wait: the server is a background job too
+R="$(jq -s '{same: (.[0].id == .[1].id)}' "$TMP/i1.json" "$TMP/i2.json")"
+check "two parallel POST /payments with one Idempotency-Key return the same payment" '.same==true' "$R"
+R="$(api "$OWNER" GET /api/bootstrap | jq --arg m "$M2" '{pays: [.payments[]|select(.memberId==$m)]|length, passes: [.passes[]|select(.memberId==$m)]|length}')"
+check "... and create one payment and one pass" '.pays==1 and .passes==1' "$R"
+NOW_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+R="$(api "$OWNER" POST /api/payments/import "{\"rows\":[{\"source\":\"KIOSK\",\"externalId\":\"E2E-A1\",\"paidAt\":\"$NOW_ISO\",\"amount\":100000,\"payerPhone\":\"$P2\",\"productName\":\"정규 클래스 4회권\"}]}")"
+check "kiosk approval auto-linked" '.added==1 and .matched==1' "$R"
+R="$(api "$OWNER" POST /api/payments/import "{\"rows\":[{\"source\":\"KIOSK\",\"externalId\":\"E2E-A1-C\",\"paidAt\":\"$NOW_ISO\",\"amount\":100000,\"payerPhone\":\"$P2\",\"productName\":\"정규 클래스 4회권\",\"status\":\"CANCELLED\"}]}")"
+check "refund with its own approval number cancels the matching approval" '.cancelled==1 and .refundUnmatched==0' "$R"
+R="$(api "$OWNER" GET /api/bootstrap | jq '[.payments[]|select(.externalId=="E2E-A1")][0]')"
+check "... original payment is CANCELLED with no pass" '.status=="CANCELLED" and .passId==null' "$R"
+R="$(api "$OWNER" POST /api/payments/import "{\"rows\":[{\"source\":\"KIOSK\",\"externalId\":\"E2E-B1\",\"paidAt\":\"$NOW_ISO\",\"amount\":1000,\"productName\":\"x\"},{\"source\":\"KIOSK\",\"externalId\":\"$(printf 'x%.0s' $(seq 1 101))\",\"paidAt\":\"$NOW_ISO\",\"amount\":1000,\"productName\":\"x\"}]}")"
+check "import keeps good rows and reports the bad one" '.added==1 and .rejectedCount==1 and .rejected[0].index==1 and .rejected[0].reason=="ID_TOO_LONG"' "$R"
+check "healthz writes and reports free disk" '.ok==true and (.freeMb|type)=="number"' "$(curl -s "$ORIGIN/api/healthz")"
+
 DESK="$(login desk)"
 [ -n "$DESK" ] && [ "$(jq -r .me.role "$TMP/login.json")" = DESK ] && pass "desk login" || { fail "desk login"; DESK=x; }
 B="$(api "$DESK" GET /api/bootstrap)"
