@@ -9,11 +9,21 @@ export interface Mapping { paidAt?: string; amount?: string; payerName?: string;
 /** 시트 원본(행 배열). firstLine = 첫 행의 엑셀 행 번호. 헤더 행은 detectHeaderRow 로 고르고 화면에서 바꿀 수 있다. */
 export async function readSheet(file: File): Promise<{ aoa: unknown[][]; firstLine: number }> {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  // CSV 는 글자 인코딩 표시가 없다: UTF-8 로 읽어 보고 깨지면(한국 POS 의 CP949/EUC-KR) 다시 읽는다.
+  const wb = /\.csv$/i.test(file.name) || file.type === 'text/csv'
+    ? XLSX.read(decodeCsv(new Uint8Array(buf)), { type: 'string', cellDates: true })
+    : XLSX.read(buf, { type: 'array', cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', blankrows: true });
   const firstLine = ws?.['!ref'] ? XLSX.utils.decode_range(ws['!ref']).s.r + 1 : 1;
   return { aoa, firstLine };
+}
+
+/** CSV 바이트 → 글자. BOM 은 떼고, UTF-8 이 아니면 EUC-KR(CP949) 로 읽는다. */
+export function decodeCsv(bytes: Uint8Array): string {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch {
+    return new TextDecoder('euc-kr').decode(bytes);
+  }
 }
 
 const cellText = (v: unknown) => (v instanceof Date ? '' : String(v ?? '').trim());
@@ -56,7 +66,7 @@ const RULES: Record<keyof Mapping, Rule> = {
   payerName: { keys: [['결제자', 5], ['고객명', 5], ['회원명', 5], ['구매자', 5], ['성명', 4], ['이름', 3], ['name', 1]], not: /상품|메뉴|가맹|카드|매장|직원|담당|점포|품목/ },
   payerPhone: { keys: [['휴대폰', 6], ['핸드폰', 6], ['휴대전화', 6], ['연락처', 5], ['전화', 4], ['phone', 4], ['mobile', 4], ['hp', 2], ['번호', 1]], not: /승인|주문|카드|사업자|거래|영수증|가맹|단말|회원번호|상품|매장|대표|^no\.?$/ },
   productName: { keys: [['상품명', 6], ['메뉴명', 6], ['품목명', 6], ['수강권', 5], ['상품', 4], ['메뉴', 4], ['품목', 4], ['product', 3], ['item', 2]], not: /코드|code|분류|구분|수량|단가|금액|할인/ },
-  externalId: { keys: [['승인번호', 6], ['거래번호', 5], ['영수증번호', 5], ['주문번호', 4], ['거래id', 4], ['approval', 4], ['tid', 3]], not: /사업자|카드번호|가맹|단말|회원|원승인|휴대|전화/, exact: ['id', 'no'] },
+  externalId: { keys: [['승인번호', 6], ['거래번호', 5], ['영수증번호', 5], ['주문번호', 4], ['거래id', 4], ['approval', 4], ['tid', 3]], not: /사업자|카드번호|가맹|단말|회원|원승인|휴대|전화/, exact: ['id'] },
   status: { keys: [['승인구분', 6], ['거래구분', 6], ['취소여부', 6], ['거래상태', 6], ['상태', 4], ['status', 4], ['승인/취소', 6], ['구분', 2], ['type', 1]], not: /결제수단|카드사|상품/ },
 };
 /** 헤더 이름으로 컬럼 추정. 업체 포맷이 바뀌어도 사용자가 UI 에서 고칠 수 있다. */

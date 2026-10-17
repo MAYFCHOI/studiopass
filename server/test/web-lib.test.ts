@@ -1,7 +1,7 @@
 // Pure web helpers (src/lib), run here because the web app has no test runner of its own.
 import { describe, it, expect } from 'vitest';
 import { matchMember, samePhoneMembers } from '../../src/lib/search';
-import { guessMapping, detectHeaderRow, sheetAt, toIso, toPayments } from '../../src/lib/excel';
+import { guessMapping, detectHeaderRow, sheetAt, toIso, toPayments, decodeCsv } from '../../src/lib/excel';
 
 const M = [
   { id: 'a', name: '회원A', phone: '01011112222', memberNo: '2026-0001' },
@@ -93,5 +93,14 @@ describe('L8 dates', () => {
     expect(toIso('2026.10.17 14:00')).toBe(local('2026-10-17T14:00:00'));
     expect(toIso('2026. 10. 17. 14:00')).toBe(local('2026-10-17T14:00:00'));
     expect(toIso('합계')).toBeNull();
+  });
+});
+
+describe('CSV encoding', () => {
+  it('reads UTF-8 (with or without BOM) and EUC-KR', () => {
+    expect(decodeCsv(new TextEncoder().encode('\uFEFF승인번호,결제금액'))).toBe('승인번호,결제금액');
+    expect(decodeCsv(new TextEncoder().encode('승인번호'))).toBe('승인번호');
+    // "승인" in EUC-KR
+    expect(decodeCsv(new Uint8Array([0xbd, 0xc2, 0xc0, 0xce]))).toBe('승인');
   });
 });
