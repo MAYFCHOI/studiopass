@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useStore, type ScanResult } from '../store';
 import type { Tab } from '../App';
-import { parseQr } from '../lib/util';
+import { reasonText } from '../lib/reasons';
 import { ClassCard } from '../components/ClassCard';
 import { courseTitle, courseMeta, passName } from '../lib/labels';
 
@@ -27,13 +27,15 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
   const busy = useRef(false);
   const list = showAll ? s.courses : todays;
 
-  const handle = (memberId: string) => {
+  // 카메라는 QR 글자를 그대로, 이름 검색은 회원 id 로 보낸다. 판정은 store(데모: AM1 해석, 서버: AM2 서명 확인).
+  const handle = (input: { qr?: string; memberId?: string }) => {
     if (busy.current) return;
     busy.current = true;
-    if (!courseId) { setResult({ ok: false, reason: '먼저 수업을 선택해 주세요' }); return; }
-    const r = s.attend(memberId, courseId);
-    setResult(r);
-    if (navigator.vibrate) navigator.vibrate(r.ok ? 40 : [60, 40, 60]);
+    if (!courseId) { setResult({ ok: false, reason: 'NO_COURSE' }); return; }
+    s.attend({ ...input, courseId }).then((r) => {
+      setResult(r);
+      if (navigator.vibrate) navigator.vibrate(r.ok ? 40 : [60, 40, 60]);
+    });
   };
 
   const [cams, setCams] = useState<{ id: string; label: string }[]>([]);
@@ -56,7 +58,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
       const hasBack = list.some((c) => /back|rear|environment|후면/i.test(c.label));
       const target = hasBack && camIdx === 0 ? { facingMode: 'environment' as const } : list[camIdx % list.length].id;
       await inst.start(target, { fps: 8, qrbox: (w, h) => { const m = Math.min(w, h) * 0.62; return { width: m, height: m }; } },
-        (text) => { const id = parseQr(text); if (id) handle(id); else { busy.current = true; setResult({ ok: false, reason: '이 스튜디오의 QR 이 아니에요' }); } },
+        (text) => handle({ qr: text }),
         () => {});
     })().catch((e) => { if (!stopped) setCamErr(String(e?.message ?? e)); });
     // 정리: stop() 은 카메라가 아직 켜지는 중이거나 실패한 상태면 동기 예외를 던진다.
@@ -99,7 +101,7 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
       <input className="input" placeholder="이름, 전화번호 뒷자리, 회원번호" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="list">
         {found.map((m) => (
-          <button className="row" key={m.id} onClick={() => { setQ(''); handle(m.id); }}>
+          <button className="row" key={m.id} onClick={() => { setQ(''); handle({ memberId: m.id }); }}>
             <div className="avatar">{m.name.slice(-2)}</div>
             <div className="main"><div className="t">{m.name}</div><div className="d">{m.memberNo} · {s.activePasses(m.id).map((p) => `${passName(s, p)} ${p.remaining}`).join(', ') || '수강권 없음'}</div></div>
             <span className="chip">출석</span>
@@ -109,9 +111,9 @@ export default function Scan({ go }: { go: (t: Tab, arg?: string) => void }) {
 
       {result && (
         <div className={'spot' + (result.ok ? '' : ' bad')} role="alertdialog" onClick={() => { setResult(null); busy.current = false; }}>
-          <div className="kicker">{result.ok ? `${dayjs(result.attendance.attendedAt).format('HH:mm')} · ${courseTitle(s, result.course)}` : '출석 안 됨'}</div>
+          <div className="kicker">{result.ok ? `${dayjs(result.attendedAt).format('HH:mm')} · ${courseTitle(s, result.course)}` : '출석 안 됨'}</div>
           <p className="who">{result.ok ? result.member.name : result.member?.name ?? '확인 필요'}</p>
-          <p className="what">{result.ok ? '출석 완료' : result.reason}</p>
+          <p className="what">{result.ok ? '출석 완료' : reasonText(result.reason)}</p>
           <p className="left">{result.ok ? (<>{passName(s, result.pass)} · 남은 횟수 <b className="num">{result.pass.remaining}</b> / {result.pass.totalCount} · {dayjs(result.pass.validTo).format('M/D')}까지</>) : (result.member ? <button className="chip" onClick={(e) => { e.stopPropagation(); go('members', result.member!.id); }}>회원 정보 보기</button> : ' ')}</p>
           <button className="ok" onClick={() => { setResult(null); busy.current = false; }}>다음 사람</button>
         </div>

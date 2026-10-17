@@ -14,6 +14,12 @@ export const fmtPhone = (d: string) =>
   d.length === 11 ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : d;
 
 export const won = (n: number) => n.toLocaleString('ko-KR') + '원';
+/** 금액이 없으면(DESK 응답) 아무것도 안 그린다. "0원" 으로 보이지 않게. */
+export const maybeWon = (n: number | undefined, prefix = '') => (n === undefined ? '' : prefix + won(n));
+
+const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+/** 서버와 같은 12자 base62 id (설정에서 새 수업·강사·상품을 만들 때) */
+export const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => B62[b % 62]).join('');
 
 export const today = () => dayjs().format('YYYY-MM-DD');
 export const ym = (d: string | Date = new Date()) => dayjs(d).format('YYYY-MM');

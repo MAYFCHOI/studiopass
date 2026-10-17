@@ -81,5 +81,5 @@ export function seed(): State {
     id: uid(), source: 'KIOSK', externalId: '30099124', paidAt: dayjs().subtract(2, 'hour').toISOString(),
     amount: 100000, payerName: '최하은', payerPhone: '', productName: '정규 클래스 4회권', status: 'APPROVED',
   });
-  return { studioName: 'THE DEPTH', members, instructors, courses, products, payments, passes, attendances };
+  return { studioName: 'THE DEPTH', members, instructors, courses, products, payments, passes, attendances, needsRealPrices: false };
 }

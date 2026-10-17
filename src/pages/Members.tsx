@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import QRCode from 'qrcode';
 import { useStore } from '../store';
 import type { Tab } from '../App';
-import { fmtPhone, qrPayload, won } from '../lib/util';
+import { fmtPhone, qrPayload, maybeWon } from '../lib/util';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { passName, courseTitle } from '../lib/labels';
@@ -63,7 +63,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
               const expired = p.validTo < t; const done = p.remaining <= 0;
               return (
                 <div className="row" key={p.id}>
-                  <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} · {won(p.price)}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
+                  <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
                   <div className="right"><b className="num">{p.remaining}</b>/ {p.totalCount}</div>
                 </div>
               );
@@ -77,7 +77,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             {att.slice(0, 30).map((a) => (
               <div className="row" key={a.id} style={a.cancelledAt ? { opacity: .4 } : undefined}>
                 <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.courses.find((c) => c.id === a.courseId)?.hall}{s.passes.find((p) => p.id === a.passId)?.kind === 'PERIOD' && ' · 월정액'}{a.cancelledAt && ' · 취소됨'}</div></div>
-                {!a.cancelledAt && <button className="btn sm ghost" onClick={() => { if (confirm('이 출석을 취소하고 횟수를 되돌릴까요?')) { s.cancelAttendance(a.id); toast('출석을 취소했어요'); } }}>취소</button>}
+                {!a.cancelledAt && <button className="btn sm ghost" onClick={() => { if (confirm('이 출석을 취소하고 횟수를 되돌릴까요?')) { s.cancelAttendance(a.id).then(() => toast('출석을 취소했어요'), () => {}); } }}>취소</button>}
               </div>
             ))}
           </div>
@@ -89,7 +89,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             {pays.map((p) => (
               <div className="row" key={p.id}>
                 <div className="main"><div className="t">{p.productName}</div><div className="d">{dayjs(p.paidAt).format('YYYY.M.D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : '수동'}{p.status === 'CANCELLED' && <span className="chip danger" style={{ marginLeft: 6 }}>취소</span>}</div></div>
-                <div className="right num">{won(p.amount)}</div>
+                <div className="right num">{maybeWon(p.amount)}</div>
               </div>
             ))}
           </div>
@@ -97,7 +97,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
 
         {adding && (
           <Sheet onClose={() => setAdding(false)} title="회원 정보 수정">
-            <MemberForm form={form} setForm={setForm} onSubmit={() => { s.updateMember(m.id, form); setAdding(false); toast('저장했어요'); }} label="저장" />
+            <MemberForm form={form} setForm={setForm} onSubmit={() => { s.updateMember(m.id, form).then(() => { setAdding(false); toast('저장했어요'); }, () => {}); }} label="저장" />
           </Sheet>
         )}
       </>
@@ -128,7 +128,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       <button className="btn primary fab" onClick={() => { setForm({ name: '', phone: '', memo: '' }); setAdding(true); }}><Icon name="plus" />새 회원</button>
       {adding && (
         <Sheet onClose={() => setAdding(false)} title="새 회원 등록">
-          <MemberForm form={form} setForm={setForm} onSubmit={() => { const m = s.addMember(form); setAdding(false); toast(`${m.name} 등록, QR 이 발급됐어요`); go('members', m.id); }} label="등록하고 QR 만들기" />
+          <MemberForm form={form} setForm={setForm} onSubmit={() => { s.addMember(form).then((m) => { setAdding(false); toast(`${m.name} 등록, QR 이 발급됐어요`); go('members', m.id); }, () => {}); }} label="등록하고 QR 만들기" />
         </Sheet>
       )}
     </>

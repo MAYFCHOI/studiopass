@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
-import { settle, type SettlementLine } from '../lib/settlement';
+import type { SettlementLine } from '../types';
 import { won } from '../lib/util';
 import { downloadXlsx } from '../lib/excel';
 import { Icon } from '../components/Icon';
@@ -11,7 +11,14 @@ export default function Settlement() {
   const s = useStore();
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [sort, setSort] = useState<'pay' | 'name'>('pay');
-  const lines = settle(s, month).sort((a, b) => (sort === 'pay' ? b.instructorPay - a.instructorPay : a.instructor.name.localeCompare(b.instructor.name, 'ko')));
+  // 데모는 브라우저 안에서 계산, 서버 모드는 /settlement 결과. 출석·강사가 바뀌면 다시 받는다.
+  const [raw, setRaw] = useState<SettlementLine[]>([]);
+  useEffect(() => {
+    let live = true;
+    useStore.getState().settlement(month).then((l) => { if (live) setRaw(l); }, () => { if (live) setRaw([]); });
+    return () => { live = false; };
+  }, [month, s.attendances, s.instructors, s.passes]);
+  const lines = [...raw].sort((a, b) => (sort === 'pay' ? b.instructorPay - a.instructorPay : a.instructor.name.localeCompare(b.instructor.name, 'ko')));
   const total = lines.reduce((n, l) => n + l.instructorPay, 0);
   const revenue = lines.reduce((n, l) => n + l.revenue, 0);
   const label = dayjs(month + '-01');
@@ -19,8 +26,8 @@ export default function Settlement() {
   const exportXlsx = () => {
     const att = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM') === month);
     downloadXlsx(`정산_${month}.xlsx`, [
-      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor}%` : `타임제 ${won(l.instructor.perSessionFee)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
-      { name: '출석 상세', rows: att.map((a) => { const p = s.passes.find((x) => x.id === a.passId); return { 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === a.memberId)?.name, 수업: s.courses.find((c) => c.id === a.courseId)?.name, 강사: s.instructors.find((i) => i.id === a.instructorId)?.name, 수강권: p?.kind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: p && p.kind === 'COUNT' ? Math.round(p.price / p.totalCount) : 0 }; }) },
+      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor ?? 0}%` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
+      { name: '출석 상세', rows: att.map((a) => { const p = s.passes.find((x) => x.id === a.passId); return { 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === a.memberId)?.name, 수업: s.courses.find((c) => c.id === a.courseId)?.name, 강사: s.instructors.find((i) => i.id === a.instructorId)?.name, 수강권: p?.kind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: p && p.kind === 'COUNT' ? Math.round((p.price ?? 0) / p.totalCount) : 0 }; }) },
       { name: '결제', rows: s.payments.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month).map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: s.members.find((m) => m.id === p.memberId)?.name ?? '연결 안 됨', 결제자: p.payerName, 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId })) },
     ]);
     toast('엑셀을 저장했어요');
@@ -30,7 +37,7 @@ export default function Settlement() {
   const sessions = lines.reduce((n, l) => n + l.sessions, 0);
   const shown = lines.filter((l) => l.sessions > 0 || l.proTickets > 0);
   const idle = lines.length - shown.length;
-  const term = (l: SettlementLine) => (l.type === 'RATIO' ? `비율제 ${100 - l.instructor.ratioInstructor}:${l.instructor.ratioInstructor}` : `타임제 ${won(l.instructor.perSessionFee)}`);
+  const term = (l: SettlementLine) => (l.type === 'RATIO' ? `비율제 ${100 - (l.instructor.ratioInstructor ?? 0)}:${l.instructor.ratioInstructor ?? 0}` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`);
 
   return (
     <div className="settle-page">

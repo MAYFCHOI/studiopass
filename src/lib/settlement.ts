@@ -1,16 +1,8 @@
 import dayjs from 'dayjs';
-import type { State, Instructor } from '../types';
+import type { State, SettlementLine } from '../types';
 
-export interface SettlementLine {
-  instructor: Instructor;
-  type: Instructor['settlementType'];
-  sessions: number; // 수업 횟수(타임)
-  heads: number; // 출석 인원 합
-  revenue: number; // 출석 기반 매출(회차 환산)
-  instructorPay: number;
-  academyPay: number;
-  proTickets: number; // 전문반 자유수강 출석(기록만)
-}
+export type { SettlementLine };
+
 
 /**
  * 가정(ASSUMPTIONS.md 참고)
@@ -34,12 +26,12 @@ export function settle(state: State, month: string): SettlementLine[] {
       const p = passById.get(a.passId);
       if (!p) continue;
       if (p.kind === 'PERIOD') { proTickets++; continue; }
-      revenue += p.totalCount > 0 ? p.price / p.totalCount : 0;
+      revenue += p.totalCount > 0 ? (p.price ?? 0) / p.totalCount : 0;
     }
     revenue = Math.round(revenue);
     let instructorPay = 0;
-    if (ins.settlementType === 'RATIO') instructorPay = Math.round((revenue * ins.ratioInstructor) / 100);
-    else instructorPay = sessionKeys.size * ins.perSessionFee;
+    if (ins.settlementType === 'RATIO') instructorPay = Math.round((revenue * (ins.ratioInstructor ?? 0)) / 100);
+    else instructorPay = sessionKeys.size * (ins.perSessionFee ?? 0);
     return {
       instructor: ins,
       type: ins.settlementType,
