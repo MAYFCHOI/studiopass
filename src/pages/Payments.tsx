@@ -21,7 +21,10 @@ const REJECT: Record<string, string> = {
   PRODUCT_TOO_LONG: '상품명이 100자를 넘어요', ID_TOO_LONG: '승인번호가 100자를 넘어요', NAME_TOO_LONG: '결제자 이름이 50자를 넘어요',
   BAD_PHONE: '휴대폰 번호 형식이 아니에요', BAD_STATUS: '상태 값을 읽지 못했어요',
 };
-const REVIEW_TEXT = { REFUND_IN_USE: '환불됐지만 출석 기록이 있어 확인 필요', REFUND_UNMATCHED: '원 결제를 찾지 못한 환불' } as const;
+const REVIEW_TEXT = { REFUND_IN_USE: '환불됐지만 출석 기록이 있어 확인 필요', REFUND_UNMATCHED: '원 결제를 찾지 못한 환불', REFUND_SUGGESTED: '환불 확인 필요 · 원 결제 후보 있음' } as const;
+/** 환불 확정(linkRefund) 실패 문구 */
+const refundFail = (r: { error: string; used: number }) => r.error === 'PASS_IN_USE' ? `그 결제의 수강권으로 출석 ${r.used}회가 있어 취소할 수 없어요. 출석을 먼저 취소해 주세요`
+  : r.error === 'NOT_APPROVED' ? '그 결제는 이미 취소됐어요. 다른 결제를 골라 주세요' : '이미 처리된 환불이에요. 화면을 새로 고쳐 주세요';
 
 type SheetState = { aoa: unknown[][]; firstLine: number; headerIdx: number; headers: string[]; rows: Row[]; lines: number[]; map: Mapping; name: string };
 type Result = ImportResult & { badDate: number; name: string; reverted?: { removed: number; kept: number } };
@@ -63,7 +66,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const doImport = () => run(async () => {
     if (!sheet) return;
     const { rows, badDate } = toPayments(sheet.rows, sheet.map, sheet.lines);
-    const empty: ImportResult = { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0, refundUnmatched: 0, rejected: [], rejectedCount: 0, dupBatches: [] };
+    const empty: ImportResult = { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0, refundUnmatched: 0, refundSuggested: 0, rejected: [], rejectedCount: 0, dupBatches: [] };
     const r = rows.length ? await s.importPayments(rows).catch(() => null) : empty;
     if (!r) return; // 실패는 store 가 알렸다
     setSheet(null);
@@ -73,7 +76,9 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const revert = (batchId: string, label: string) => run(async () => {
     if (!confirm(`${label}\n이 업로드로 들어온 결제와 수강권을 지워요. 출석에 쓰인 수강권의 결제는 남아요. 지운 뒤 고친 컬럼으로 파일을 다시 올리면 돼요.`)) return;
     const r = await s.revertImport(batchId).catch(() => null);
-    if (r && result) setResult({ ...result, reverted: r });
+    if (!r) return;
+    if (!r.ok) { toast(`이 업로드의 환불 ${r.count}건이 이미 원 결제를 취소해서 되돌릴 수 없어요. 결제를 한 건씩 확인해 주세요`); return; }
+    if (result) setResult({ ...result, reverted: { removed: r.removed, kept: r.kept } });
   });
 
   /** 회원은 연결됐는데 수강권이 없는 결제: 키오스크 상품명이 어떤 수강권 상품과도 맞지 않았다. */
@@ -123,7 +128,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
             return (
               <button className="row" key={p.id} onClick={() => openItem(p)}>
                 <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
-                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : '회원 연결'}</span></div>
+                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : '회원 연결'}</span></div>
               </button>
             );
           })}
@@ -214,7 +219,7 @@ function ImportPanel({ r, owner, busy, onClose, onRevert }: { r: Result; owner: 
     `${r.added}건 추가 · 중복 ${r.dup}건 · 회원 자동 연결 ${r.matched}건`,
     r.cancelled > 0 && `환불 ${r.cancelled}건 반영`,
     r.cancelFailed > 0 && `환불 ${r.cancelFailed}건은 출석 기록이 있어 확인 필요에 올렸어요`,
-    r.refundUnmatched > 0 && `원 결제를 찾지 못한 환불 ${r.refundUnmatched}건은 확인 필요에 올렸어요`,
+    r.refundSuggested + r.refundUnmatched > 0 && `환불 확인 필요 ${r.refundSuggested + r.refundUnmatched}건 (확인 필요 탭에서 원 결제를 확정해 주세요)`,
     r.badDate > 0 && `결제 일시를 읽지 못한 ${r.badDate}행은 건너뛰었어요`,
     r.rejectedCount > 0 && `저장하지 못한 행 ${r.rejectedCount}개 (아래 목록)`,
   ].filter(Boolean) as string[];
@@ -239,6 +244,7 @@ function ReviewSheet({ p, busy, run, onClose, go, onCancel }: { p: Payment; busy
   const s = useStore();
   const name = (id?: string) => s.members.find((m) => m.id === id)?.name;
   const done = (msg: string) => { toast(msg); onClose(); };
+  const [picking, setPicking] = useState(false);
   if (p.review === 'REFUND_IN_USE') {
     return (
       <Sheet onClose={onClose} title="환불 확인 필요">
@@ -249,6 +255,30 @@ function ReviewSheet({ p, busy, run, onClose, go, onCancel }: { p: Payment; busy
           <button className="btn wide" disabled={busy} onClick={onCancel}>취소 처리</button>
         </div>
         <button className="btn ghost wide" style={{ marginTop: 8 }} disabled={busy} onClick={() => { void run(() => s.clearReview(p.id).then(() => done('확인했어요. 승인 상태로 둘게요'))); }}>확인함 (그대로 둠)</button>
+      </Sheet>
+    );
+  }
+  if (p.review === 'REFUND_SUGGESTED' && !picking) {
+    const o = s.payments.find((x) => x.id === p.refundSuggestedOf);
+    const used = o?.passId ? s.attendances.filter((a) => a.passId === o.passId && !a.cancelledAt).length : 0;
+    return (
+      <Sheet onClose={onClose} title="환불 확인">
+        <p className="sub">환불 {p.payerName || '이름 없음'} · {p.productName}{maybeWon(p.amount, ' · ')} · {dayjs(p.paidAt).format('M/D HH:mm')}</p>
+        {o ? (
+          <div className="notice" role="note">
+            원 결제 후보: {name(o.memberId) ?? o.payerName ?? '이름 없음'} · {o.productName} · {dayjs(o.paidAt).format('M/D HH:mm')}{o.externalId && ` · ${o.externalId}`}<br />
+            {o.passId ? (used > 0 ? `이 수강권으로 출석 ${used}회가 있어요` : '이 수강권은 아직 쓰지 않았어요') : '수강권 없음'}
+            <p style={{ margin: '6px 0 0', fontWeight: 500 }}>승인번호가 달라 자동으로 취소하지 않았어요. 맞으면 환불 처리하면 그 결제와 수강권이 취소돼요(되돌릴 수 없어요).</p>
+          </div>
+        ) : <p className="sub">후보 결제를 찾을 수 없어요. 다른 결제를 골라 주세요.</p>}
+        <div className="btn-row">
+          {o && <button className="btn primary wide" disabled={busy} onClick={() => { void run(async () => {
+            if (!confirm('이 결제를 환불 처리할까요? 결제와 수강권이 취소돼요.')) return;
+            const r = await s.linkRefund(p.id, o.id);
+            if (r.ok) done('환불 처리했어요'); else toast(refundFail(r));
+          }); }}>{busy ? '처리 중…' : '이 결제 환불 처리'}</button>}
+          <button className="btn wide" onClick={() => setPicking(true)}>다른 결제 고르기</button>
+        </div>
       </Sheet>
     );
   }
@@ -265,7 +295,7 @@ function ReviewSheet({ p, busy, run, onClose, go, onCancel }: { p: Payment; busy
           {cands.map((x) => (
             <button className="row" key={x.id} disabled={busy} onClick={() => { void run(async () => {
               const r = await s.linkRefund(p.id, x.id);
-              if (r.ok) done('원 결제를 취소했어요'); else toast(`그 결제의 수강권으로 출석 ${r.used}회가 있어 취소할 수 없어요. 출석을 먼저 취소해 주세요`);
+              if (r.ok) done('원 결제를 취소했어요'); else toast(refundFail(r));
             }); }}>
               <div className="main"><div className="t">{name(x.memberId) ?? x.payerName ?? '이름 없음'} · {x.productName}</div><div className="d">{dayjs(x.paidAt).format('M/D HH:mm')}{x.externalId && ` · ${x.externalId}`}{x.payerPhone && ` · ${fmtPhone(x.payerPhone)}`}</div></div>
               <div className="right">{x.amount !== undefined && <b className="num">{won(x.amount)}</b>}<span className="chip">이 결제</span></div>

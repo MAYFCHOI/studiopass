@@ -76,7 +76,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
     async function mutate409<T>(path: string, init: Init): Promise<{ ok: true; r: T } | { ok: false; error: string; used: number }> {
       let r: T;
       try { r = await call<T>(path, init); } catch (e) {
-        if (e instanceof ApiError && e.status === 409) { await refresh().catch(() => {}); return { ok: false, error: String(e.body?.error ?? ''), used: Number(e.body?.used) || 0 }; }
+        if (e instanceof ApiError && e.status === 409) { await refresh().catch(() => {}); return { ok: false, error: String(e.body?.error ?? ''), used: Number(e.body?.used ?? e.body?.count) || 0 }; }
         failToast(e); throw e;
       }
       await refresh().catch(() => {});
@@ -141,20 +141,23 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       cancelAttendance: (id) => post(`/attendances/${id}/cancel`).then(() => {}),
       importPayments: async (rows, opts) => {
         const batchId = opts?.batchId ?? newRequestKey(); // 여러 요청으로 나눠도 한 묶음
-        const total: ImportResult = { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0, refundUnmatched: 0, rejected: [], rejectedCount: 0, batchId, dupBatches: [] };
+        const total: ImportResult = { added: 0, dup: 0, matched: 0, cancelled: 0, cancelFailed: 0, refundUnmatched: 0, refundSuggested: 0, rejected: [], rejectedCount: 0, batchId, dupBatches: [] };
         const dupBatches = new Map<string, number>();
         for (let i = 0; i < rows.length; i += IMPORT_CHUNK) {
           const part = rows.slice(i, i + IMPORT_CHUNK);
           const clean = part.map(({ raw: _raw, line: _line, ...r }) => r); // 원본 행·행 번호는 보내지 않는다
           const r = await mutate<ImportResult & { rejected: { index: number; reason: string }[] }>('/payments/import', { method: 'POST', body: { rows: clean, batchId }, timeoutMs: 60000 });
-          for (const k of ['added', 'dup', 'matched', 'cancelled', 'cancelFailed', 'refundUnmatched', 'rejectedCount'] as const) total[k] += r[k] ?? 0;
+          for (const k of ['added', 'dup', 'matched', 'cancelled', 'cancelFailed', 'refundUnmatched', 'refundSuggested', 'rejectedCount'] as const) total[k] += r[k] ?? 0;
           for (const x of r.rejected ?? []) total.rejected.push({ line: part[x.index]?.line, reason: x.reason });
           for (const b of r.dupBatches ?? []) dupBatches.set(b.batchId, (dupBatches.get(b.batchId) ?? 0) + b.count);
         }
         total.dupBatches = [...dupBatches].map(([batchId, count]) => ({ batchId, count })).sort((a, b) => b.count - a.count);
         return total;
       },
-      revertImport: (batchId) => post<{ removed: number; kept: number }>(`/payments/import-batches/${encodeURIComponent(batchId)}/revert`),
+      revertImport: async (batchId) => {
+        const r = await mutate409<{ removed: number; kept: number }>(`/payments/import-batches/${encodeURIComponent(batchId)}/revert`, { method: 'POST' });
+        return r.ok ? { ok: true, ...r.r } : { ok: false, error: 'REFUND_LINKED', count: r.used };
+      },
       addPayment: (p, opts) => post('/payments', p, idem(opts?.idempotencyKey)).then(() => {}),
       assignPayment: async (paymentId, memberId): Promise<AssignResult> => {
         const r = await mutate409<{ passId: string | null; moved?: boolean }>(`/payments/${paymentId}/assign`, { method: 'POST', body: { memberId } });
@@ -167,7 +170,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       },
       linkRefund: async (refundId, originalId) => {
         const r = await mutate409(`/payments/${refundId}/refund-of`, { method: 'POST', body: { originalId } });
-        return r.ok ? { ok: true } : { ok: false, used: r.used };
+        return r.ok ? { ok: true } : { ok: false, error: r.error, used: r.used };
       },
       clearReview: (paymentId) => post(`/payments/${paymentId}/review-clear`).then(() => {}),
       memberHistory: (memberId) => call<MemberHistory>(`/members/${memberId}/history`, { timeoutMs: 15000 }),

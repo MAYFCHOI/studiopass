@@ -49,7 +49,7 @@ export function memberRoutes(d: Deps) {
       db.prepare('insert into members(id,member_no,name,phone,memo,created_at) values(?,?,?,?,?,?)').run(id, `${year}-${String(seq).padStart(4, '0')}`, b.name.trim(), phone, b.memo ?? null, nowIso());
       audit(db, staffId, 'member.create', 'member', id);
       let assigned = 0;
-      if (phone) {
+      if (phone && samePhone(id, phone) === 0) { // 번호를 다른 회원도 쓰면 자동 연결하지 않는다(PATCH 와 같은 규칙)
         const open = db.prepare("select id from payments where payer_phone=? and member_id is null and pass_id is null and status='APPROVED' order by paid_at").all(phone) as { id: string }[];
         for (const p of open) { assignPayment(db, p.id, id, staffId, onPass); assigned++; }
       }

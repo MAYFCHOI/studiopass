@@ -60,18 +60,19 @@ export function assignPayment(db: Db, paymentId: string, memberId: string, staff
   })();
 }
 
-export type IngestResult = { added: number; dup: number; matched: number; cancelled: number; cancelFailed: number; refundUnmatched: number; batchId: string; dupBatches: { batchId: string; count: number }[] };
+export type IngestResult = { added: number; dup: number; matched: number; cancelled: number; cancelFailed: number; refundUnmatched: number; refundSuggested: number; batchId: string; dupBatches: { batchId: string; count: number }[] };
 
 /**
  * 키오스크 행 적재. 같은 승인번호가 다시 오면 중복으로 센다. 단, 나중 행이 취소(환불)이고 저장된 결제가 승인 상태면
  * 그 결제를 취소한다(cancelled). 수강권이 이미 출석에 쓰였으면 승인 상태로 두고 cancelFailed 로 세며 확인 필요(REFUND_IN_USE)에 올린다.
- * 승인번호가 다른 환불 행은 같은 전화·금액·상품의 30일 안 승인 결제 중 출석이 없는 가장 최근 것을 취소한다.
- * 못 찾으면 환불 행을 확인 필요(REFUND_UNMATCHED)에 둔다.
+ * 승인번호가 다른 환불 행은 자동으로 취소하지 않는다(가족이 번호를 같이 쓰면 남의 수강권을 지울 수 있고, 취소는 되돌릴 수 없다).
+ * 같은 전화·금액·상품의 30일 안 승인 결제 중 후보가 하나로 좁혀지면 REFUND_SUGGESTED(refund_suggested_of)로,
+ * 아니면 REFUND_UNMATCHED 로 확인 필요에 올린다. 사람이 linkRefund 로 확정한다.
  */
 export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | null, onPass?: OnPass, opts: { batchId?: string } = {}) {
   const batchId = opts.batchId ?? newId();
   return db.transaction((): IngestResult => {
-    let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0, refundUnmatched = 0;
+    let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0, refundUnmatched = 0, refundSuggested = 0;
     const seen = new Set<string>();
     const dupBatches = new Map<string, number>();
     const refunds: { id: string; phone: string; r: PaymentInput }[] = [];
@@ -113,25 +114,33 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       if (m.length === 1) { assignPayment(db, id, m[0].id, staffId, onPass); matched++; }
     }
     for (const f of refunds) {
-      const cands = f.phone ? db.prepare(`select id, pass_id from payments where status='APPROVED' and payer_phone=? and amount=? and product_name=? and id<>?
+      const cands = f.phone ? db.prepare(`select id, pass_id, member_id, payer_name from payments where status='APPROVED' and payer_phone=? and amount=? and product_name=? and id<>?
           and julianday(paid_at) between julianday(?) - ? and julianday(?) and id not in (select refund_of from payments where refund_of is not null) order by paid_at desc`)
-        .all(f.phone, Math.round(f.r.amount), f.r.productName, f.id, f.r.paidAt, REFUND_MATCH_DAYS, f.r.paidAt) as { id: string; pass_id: string | null }[] : [];
-      const free = cands.find((x) => !x.pass_id || usedCount(db, x.pass_id) === 0);
-      if (free) {
-        cancelPayment(db, free.id, staffId);
-        db.prepare('update payments set refund_of=? where id=?').run(free.id, f.id);
-        cancelled++;
-      } else if (cands.length) {
-        markInUse(cands[0].id);
-        db.prepare('update payments set refund_of=? where id=?').run(cands[0].id, f.id);
-        cancelFailed++;
+        .all(f.phone, Math.round(f.r.amount), f.r.productName, f.id, f.r.paidAt, REFUND_MATCH_DAYS, f.r.paidAt) as { id: string; pass_id: string | null; member_id: string | null; payer_name: string | null }[] : [];
+      const pick = suggestOriginal(db, cands, f.r.payerName);
+      if (pick) {
+        db.prepare("update payments set review='REFUND_SUGGESTED', refund_suggested_of=? where id=?").run(pick, f.id);
+        refundSuggested++;
       } else {
         db.prepare("update payments set review='REFUND_UNMATCHED' where id=?").run(f.id);
         refundUnmatched++;
       }
     }
-    return { added, dup, matched, cancelled, cancelFailed, refundUnmatched, batchId, dupBatches: [...dupBatches].map(([batchId, count]) => ({ batchId, count })).sort((a, b) => b.count - a.count) };
+    return { added, dup, matched, cancelled, cancelFailed, refundUnmatched, refundSuggested, batchId, dupBatches: [...dupBatches].map(([batchId, count]) => ({ batchId, count })).sort((a, b) => b.count - a.count) };
   })();
+}
+/**
+ * 환불 행의 원 결제 후보를 하나로 좁힌다(없으면 null). 후보(최근 순) 중 출석 없는 것을 먼저 보고, 없으면 전부를 본다.
+ * 그 후보가 모두 한 회원(또는 모두 미연결) 것이면 가장 최근 것, 여러 회원이면 결제자 이름이 환불 행과 같은 것이 정확히 하나일 때 그것.
+ */
+function suggestOriginal(db: Db, cands: { id: string; pass_id: string | null; member_id: string | null; payer_name: string | null }[], payerName?: string | null) {
+  if (!cands.length) return null;
+  const free = cands.filter((x) => !x.pass_id || usedCount(db, x.pass_id) === 0);
+  const pool = free.length ? free : cands;
+  if (new Set(pool.map((x) => x.member_id ?? '')).size === 1) return pool[0].id;
+  const name = (payerName ?? '').trim();
+  const same = name ? pool.filter((x) => (x.payer_name ?? '').trim() === name) : [];
+  return same.length === 1 ? same[0].id : null;
 }
 export function cancelPayment(db: Db, paymentId: string, staffId: string | null) {
   db.transaction(() => {
@@ -147,15 +156,19 @@ export function cancelPayment(db: Db, paymentId: string, staffId: string | null)
     audit(db, staffId, 'payment.cancel', 'payment', p.id);
   })();
 }
-/** 원 결제를 찾지 못한 환불 행에 원 결제를 직접 고른다: 원 결제를 취소하고 환불 행의 확인 필요 표시를 지운다. */
+/**
+ * 확인 필요의 환불 행(REFUND_UNMATCHED / REFUND_SUGGESTED, 아직 원 결제 없음)에 원 결제를 확정한다: 원 결제를 취소하고 표시를 지운다.
+ * 사람이 고른 원 결제만 취소된다(제안은 제안일 뿐).
+ */
 export function linkRefund(db: Db, refundId: string, originalId: string, staffId: string | null) {
-  return db.transaction((): 'OK' | 'NOT_REFUND' | 'NOT_APPROVED' => {
-    const f = db.prepare('select status from payments where id=?').get(refundId) as { status: string } | undefined;
+  return db.transaction((): 'OK' | 'NOT_FOUND' | 'NOT_REFUND' | 'NOT_APPROVED' => {
+    const f = db.prepare('select status, review, refund_of from payments where id=?').get(refundId) as { status: string; review: string | null; refund_of: string | null } | undefined;
     const o = db.prepare('select status from payments where id=?').get(originalId) as { status: string } | undefined;
-    if (!f || f.status !== 'CANCELLED') return 'NOT_REFUND';
+    if (!f) return 'NOT_FOUND';
+    if (f.status !== 'CANCELLED' || (f.review !== 'REFUND_UNMATCHED' && f.review !== 'REFUND_SUGGESTED') || f.refund_of) return 'NOT_REFUND';
     if (!o || o.status !== 'APPROVED') return 'NOT_APPROVED';
     cancelPayment(db, originalId, staffId); // PassInUseError goes to the caller
-    db.prepare('update payments set review=null, refund_of=? where id=?').run(originalId, refundId);
+    db.prepare('update payments set review=null, refund_of=?, refund_suggested_of=null where id=?').run(originalId, refundId);
     audit(db, staffId, 'payment.refund_link', 'payment', refundId, { originalId });
     return 'OK';
   })();
@@ -170,13 +183,17 @@ export function clearReview(db: Db, paymentId: string, staffId: string | null) {
  * 출석에 쓰인 수강권의 결제는 남기고 kept 로 센다.
  */
 export function revertBatch(db: Db, batchId: string, staffId: string | null) {
-  return db.transaction(() => {
+  return db.transaction((): { removed: number; kept: number } | { error: 'REFUND_LINKED'; count: number } => {
+    // 이 묶음의 환불 행으로 이미 취소된 원 결제가 있으면 되돌리지 않는다(지운 수강권은 다시 만들 수 없다).
+    const linked = (db.prepare("select count(*) n from payments f join payments o on o.id=f.refund_of where f.import_batch_id=? and o.status='CANCELLED'").get(batchId) as { n: number }).n;
+    if (linked > 0) return { error: 'REFUND_LINKED', count: linked };
     const rows = db.prepare('select id, pass_id from payments where import_batch_id=?').all(batchId) as { id: string; pass_id: string | null }[];
     let removed = 0, kept = 0;
     for (const p of rows) {
       if (p.pass_id && usedCount(db, p.pass_id) > 0) { kept++; continue; }
       if (p.pass_id) { db.prepare('delete from attendances where pass_id=?').run(p.pass_id); db.prepare('delete from passes where id=?').run(p.pass_id); }
       db.prepare('update payments set refund_of=null where refund_of=?').run(p.id);
+      db.prepare("update payments set refund_suggested_of=null, review=case when review='REFUND_SUGGESTED' then 'REFUND_UNMATCHED' else review end where refund_suggested_of=?").run(p.id);
       db.prepare('delete from payments where id=?').run(p.id);
       removed++;
     }

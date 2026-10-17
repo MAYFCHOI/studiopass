@@ -99,7 +99,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           const seen = new Set<string>();
           const ext = new Map<string, number>();
           for (const r of rows) if (r.externalId) ext.set(r.externalId, (ext.get(r.externalId) ?? 0) + 1);
-          let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0, refundUnmatched = 0;
+          let added = 0, dup = 0, matched = 0, cancelled = 0, cancelFailed = 0, refundUnmatched = 0, refundSuggested = 0;
           const dupBatches = new Map<string, number>();
           const fresh: Payment[] = [];
           const refundsSame: string[] = [];
@@ -132,18 +132,20 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             if (!pay) { dup++; continue; }
             if (cancelSync(pay.id).ok) cancelled++; else { patchPayment(pay.id, { review: 'REFUND_IN_USE' }); cancelFailed++; }
           }
-          // 승인번호가 다른 환불: 같은 전화·금액·상품, 30일 안, 출석 없는 가장 최근 승인 결제
+          // 승인번호가 다른 환불: 자동 취소하지 않는다. 같은 전화·금액·상품, 30일 안 후보가 하나로 좁혀지면 제안, 아니면 원 결제 고르기
           for (const f of refundsNew) {
             const s2 = get();
             const taken = new Set(s2.payments.map((p) => p.refundOf).filter(Boolean));
             const t = dayjs(f.paidAt);
             const cands = f.payerPhone ? s2.payments.filter((p) => p.status === 'APPROVED' && p.id !== f.id && !taken.has(p.id) && p.payerPhone === f.payerPhone && p.amount === f.amount && p.productName === f.productName && !dayjs(p.paidAt).isAfter(t) && !dayjs(p.paidAt).isBefore(t.subtract(30, 'day'))).sort((a, b) => b.paidAt.localeCompare(a.paidAt)) : [];
-            const free = cands.find((p) => usedOf(p.passId) === 0);
-            if (free) { cancelSync(free.id); patchPayment(f.id, { refundOf: free.id }); cancelled++; }
-            else if (cands.length) { patchPayment(cands[0].id, { review: 'REFUND_IN_USE' }); patchPayment(f.id, { refundOf: cands[0].id }); cancelFailed++; }
+            const free = cands.filter((p) => usedOf(p.passId) === 0);
+            const pool = free.length ? free : cands;
+            const byName = (f.payerName ?? '').trim() ? pool.filter((p) => (p.payerName ?? '').trim() === (f.payerName ?? '').trim()) : [];
+            const pick = !pool.length ? undefined : new Set(pool.map((p) => p.memberId ?? '')).size === 1 ? pool[0] : byName.length === 1 ? byName[0] : undefined;
+            if (pick) { patchPayment(f.id, { review: 'REFUND_SUGGESTED', refundSuggestedOf: pick.id }); refundSuggested++; }
             else { patchPayment(f.id, { review: 'REFUND_UNMATCHED' }); refundUnmatched++; }
           }
-          return { added, dup, matched, cancelled, cancelFailed, refundUnmatched, rejected: [], rejectedCount: 0, batchId, dupBatches: [...dupBatches].map(([b, n]) => ({ batchId: b, count: n })).sort((a, b) => b.count - a.count) };
+          return { added, dup, matched, cancelled, cancelFailed, refundUnmatched, refundSuggested, rejected: [], rejectedCount: 0, batchId, dupBatches: [...dupBatches].map(([b, n]) => ({ batchId: b, count: n })).sort((a, b) => b.count - a.count) };
         };
 
         return {
@@ -187,6 +189,8 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           importPayments: async (rows, opts) => importSync(rows, opts?.batchId ?? newRequestKey()),
           revertImport: async (batchId) => {
             const s = get();
+            const linked = s.payments.filter((f) => f.importBatchId === batchId && f.refundOf && s.payments.some((o) => o.id === f.refundOf && o.status === 'CANCELLED')).length;
+            if (linked) return { ok: false, error: 'REFUND_LINKED', count: linked };
             let removed = 0, kept = 0;
             const drop = new Set<string>(); const dropPasses = new Set<string>();
             for (const p of s.payments.filter((x) => x.importBatchId === batchId)) {
@@ -194,19 +198,20 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
               drop.add(p.id); if (p.passId) dropPasses.add(p.passId); removed++;
             }
             set({
-              payments: s.payments.filter((p) => !drop.has(p.id)).map((p) => (p.refundOf && drop.has(p.refundOf) ? { ...p, refundOf: undefined } : p)),
+              payments: s.payments.filter((p) => !drop.has(p.id)).map((p) => (p.refundOf && drop.has(p.refundOf) ? { ...p, refundOf: undefined } : p.refundSuggestedOf && drop.has(p.refundSuggestedOf) ? { ...p, refundSuggestedOf: undefined, review: 'REFUND_UNMATCHED' as const } : p)),
               passes: s.passes.filter((x) => !dropPasses.has(x.id)),
               attendances: s.attendances.filter((a) => !dropPasses.has(a.passId)),
             });
-            return { removed, kept };
+            return { ok: true, removed, kept };
           },
           linkRefund: async (refundId, originalId) => {
             const f = get().payments.find((p) => p.id === refundId);
             const o = get().payments.find((p) => p.id === originalId);
-            if (!f || f.status !== 'CANCELLED' || !o || o.status !== 'APPROVED') return { ok: true };
+            if (!f || f.status !== 'CANCELLED' || (f.review !== 'REFUND_UNMATCHED' && f.review !== 'REFUND_SUGGESTED') || f.refundOf) return { ok: false, error: 'NOT_REFUND', used: 0 };
+            if (!o || o.status !== 'APPROVED') return { ok: false, error: 'NOT_APPROVED', used: 0 };
             const r = cancelSync(originalId);
-            if (!r.ok) return r;
-            patchPayment(refundId, { review: undefined, refundOf: originalId });
+            if (!r.ok) return { ok: false, error: 'PASS_IN_USE', used: r.used };
+            patchPayment(refundId, { review: undefined, refundOf: originalId, refundSuggestedOf: undefined });
             return { ok: true };
           },
           clearReview: async (paymentId) => { patchPayment(paymentId, { review: undefined }); },

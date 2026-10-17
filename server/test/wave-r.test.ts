@@ -81,28 +81,75 @@ describe('H3 reassign, refunds with another approval number', () => {
     expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'PAYMENT_CANCELLED' });
     expect(() => assignPayment(db, p.id, m.id, null)).toThrow(AssignError);
   });
-  it('a refund row with its own approval number cancels the matching unused approval (same phone, amount, product, 30 days)', () => {
-    const { db, member } = makeDb(); member();
-    ingestPayments(db, [kiosk({ externalId: 'B2001' })], null);
-    const r = ingestPayments(db, [kiosk({ externalId: 'B2001-C', status: 'CANCELLED', paidAt: '2026-10-25T09:00:00Z' })], null);
-    expect(r).toMatchObject({ added: 1, cancelled: 1, refundUnmatched: 0 });
-    const orig = db.prepare("select status, pass_id from payments where external_id='B2001'").get();
-    expect(orig).toEqual({ status: 'CANCELLED', pass_id: null });
-    expect(db.prepare("select refund_of from payments where external_id='B2001-C'").get()).toMatchObject({ refund_of: expect.any(String) });
-    expect((db.prepare('select count(*) n from passes').get() as any).n).toBe(0);
+  it('a refund row with its own approval number is only suggested; confirming cancels exactly that payment', async () => {
+    const o = await login('owner');
+    await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, o);
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'B2001' })] } }, o);
+    const r = await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'B2001-C', status: 'CANCELLED', paidAt: '2026-10-25T09:00:00Z' })] } }, o)).json();
+    expect(r).toMatchObject({ added: 1, cancelled: 0, refundSuggested: 1, refundUnmatched: 0 });
+    const orig = db.prepare("select id, status from payments where external_id='B2001'").get();
+    expect(orig.status).toBe('APPROVED'); // nothing cancelled during import
+    const refund = db.prepare("select id, review, refund_suggested_of, refund_of from payments where external_id='B2001-C'").get();
+    expect(refund).toMatchObject({ review: 'REFUND_SUGGESTED', refund_suggested_of: orig.id, refund_of: null });
+    const boot = await (await req('/bootstrap', {}, o)).json();
+    expect(boot.payments.find((p: any) => p.id === refund.id)).toMatchObject({ review: 'REFUND_SUGGESTED', refundSuggestedOf: orig.id });
+    expect((await req(`/payments/${refund.id}/refund-of`, { method: 'POST', body: { originalId: orig.id } }, o)).status).toBe(200);
+    expect(db.prepare('select status, pass_id from payments where id=?').get(orig.id)).toEqual({ status: 'CANCELLED', pass_id: null });
+    expect(db.prepare('select review, refund_of, refund_suggested_of from payments where id=?').get(refund.id)).toEqual({ review: null, refund_of: orig.id, refund_suggested_of: null });
+    expect(count('select count(*) n from passes')).toBe(0);
+    expect((await req(`/payments/${refund.id}/refund-of`, { method: 'POST', body: { originalId: orig.id } }, o)).status).toBe(409); // already linked
   });
-  it('approval and differently numbered refund in one file, refund row first', () => {
+  it('family sharing a phone: refund is suggested by payer name, or left unmatched; nothing is cancelled', () => {
+    const { db, member } = makeDb(); const mom = member('김엄마', '01011112222'); const kid = member('김아이', '01011112222');
+    ingestPayments(db, [kiosk({ externalId: 'M1', payerName: '김엄마' }), kiosk({ externalId: 'K1', payerName: '김아이', paidAt: '2026-10-19T10:00:00Z' })], null);
+    const pid = (x: string) => (db.prepare('select id from payments where external_id=?').get(x) as any).id;
+    assignPayment(db, pid('M1'), mom, null); assignPayment(db, pid('K1'), kid, null); // shared phone: linked by hand
+    const passes = () => (db.prepare('select count(*) n from passes').get() as any).n;
+    expect(passes()).toBe(2);
+    expect(ingestPayments(db, [kiosk({ externalId: 'R-K', status: 'CANCELLED', payerName: '김아이', paidAt: '2026-10-20T09:00:00Z' })], null)).toMatchObject({ refundSuggested: 1, cancelled: 0 });
+    expect(db.prepare("select refund_suggested_of s from payments where external_id='R-K'").get()).toEqual({ s: pid('K1') });
+    expect(ingestPayments(db, [kiosk({ externalId: 'R-X', status: 'CANCELLED', payerName: '', paidAt: '2026-10-20T10:00:00Z' })], null)).toMatchObject({ refundUnmatched: 1, refundSuggested: 0, cancelled: 0 });
+    expect(passes()).toBe(2);
+    expect((db.prepare("select count(*) n from payments where status='APPROVED'").get() as any).n).toBe(2);
+  });
+  it('approval and differently numbered refund in one file, refund row first: suggested, not cancelled', () => {
     const { db, member } = makeDb(); member();
     const r = ingestPayments(db, [kiosk({ externalId: 'C-1', status: 'CANCELLED', paidAt: '2026-10-19T09:05:00Z' }), kiosk({ externalId: 'A-1' })], null);
-    expect(r).toMatchObject({ added: 2, matched: 1, cancelled: 1 });
-    expect(db.prepare("select status from payments where external_id='A-1'").get()).toEqual({ status: 'CANCELLED' });
+    expect(r).toMatchObject({ added: 2, matched: 1, cancelled: 0, refundSuggested: 1 });
+    expect(db.prepare("select status from payments where external_id='A-1'").get()).toEqual({ status: 'APPROVED' });
   });
-  it('a refund whose only match has attendance stays APPROVED and is flagged REFUND_IN_USE', () => {
-    const { db, member, course } = makeDb(); const m = member();
-    ingestPayments(db, [kiosk({ externalId: 'B1' })], null);
-    attend(db, { memberId: m, courseId: course().id, staffId: null, now: NOW });
-    expect(ingestPayments(db, [kiosk({ externalId: 'B1-C', status: 'CANCELLED', paidAt: '2026-10-20T09:00:00Z' })], null)).toMatchObject({ cancelFailed: 1 });
-    expect(db.prepare("select status, review from payments where external_id='B1'").get()).toEqual({ status: 'APPROVED', review: 'REFUND_IN_USE' });
+  it('a refund whose only match has attendance is suggested; confirming gives PASS_IN_USE and keeps it', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, o)).json();
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'B1' })] } }, o);
+    attend(db, { memberId: m.id, courseId: (db.prepare("select id from courses where kind='GENERAL' limit 1").get() as any).id, staffId: null, now: NOW });
+    expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'B1-C', status: 'CANCELLED', paidAt: '2026-10-20T09:00:00Z' })] } }, o)).json()).toMatchObject({ refundSuggested: 1, cancelled: 0 });
+    const f = db.prepare("select id, refund_suggested_of s from payments where external_id='B1-C'").get();
+    const r = await req(`/payments/${f.id}/refund-of`, { method: 'POST', body: { originalId: f.s } }, o);
+    expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'PASS_IN_USE', used: 1 });
+    expect(db.prepare("select status from payments where external_id='B1'").get()).toEqual({ status: 'APPROVED' });
+  });
+  it('linkRefund guards: only review refund rows without a link, original must be approved', async () => {
+    const o = await login('owner');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'P1', payerPhone: '' }), kiosk({ externalId: 'P2', payerPhone: '', paidAt: '2026-10-19T09:30:00Z' }), kiosk({ externalId: 'RR', status: 'CANCELLED', payerPhone: '', paidAt: '2026-10-19T09:40:00Z' })] } }, o);
+    const id = (x: string) => db.prepare('select id from payments where external_id=?').get(x).id;
+    expect(await (await req(`/payments/${id('P1')}/refund-of`, { method: 'POST', body: { originalId: id('P2') } }, o)).json()).toEqual({ error: 'NOT_REFUND' });
+    await req(`/payments/${id('P2')}/cancel`, { method: 'POST' }, o);
+    const r = await req(`/payments/${id('RR')}/refund-of`, { method: 'POST', body: { originalId: id('P2') } }, o);
+    expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'NOT_APPROVED' });
+    await req(`/payments/${id('RR')}/review-clear`, { method: 'POST' }, o);
+    expect(await (await req(`/payments/${id('RR')}/refund-of`, { method: 'POST', body: { originalId: id('P1') } }, o)).json()).toEqual({ error: 'NOT_REFUND' });
+    expect((await req('/payments/nope/refund-of', { method: 'POST', body: { originalId: id('P1') } }, o)).status).toBe(404);
+    expect(db.prepare('select status from payments where id=?').get(id('P1'))).toEqual({ status: 'APPROVED' });
+  });
+  it('POST /members does not auto-assign waiting payments when another member has the phone', async () => {
+    const o = await login('owner');
+    await req('/members', { method: 'POST', body: { name: '김엄마', phone: '01011112222' } }, o);
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk()] } }, o);
+    db.prepare('delete from passes').run(); db.prepare('update payments set member_id=null, pass_id=null').run(); // waiting again
+    const kid = await (await req('/members', { method: 'POST', body: { name: '김아이', phone: '010-1111-2222' } }, o)).json();
+    expect(kid).toMatchObject({ assigned: 0, samePhone: 1 });
+    expect(db.prepare('select member_id from payments').get()).toEqual({ member_id: null });
   });
   it('same-number refund on a used pass is flagged REFUND_IN_USE as well', () => {
     const { db, member, course } = makeDb(); const m = member();
@@ -143,6 +190,17 @@ describe('H5 import batch revert', () => {
     expect((await req('/payments/import-batches/batch-wrong-1/revert', { method: 'POST' }, d)).status).toBe(403);
     expect(await (await req('/payments/import-batches/batch-wrong-1/revert', { method: 'POST' }, o)).json()).toEqual({ removed: 1, kept: 1 });
     expect(await (await req('/payments/import', { method: 'POST', body: { rows: [kiosk({ externalId: 'E1' }), kiosk({ externalId: 'E2' })] } }, o)).json()).toMatchObject({ added: 1, dup: 1 });
+  });
+  it('revert is refused when a refund row of the batch already cancelled an original', async () => {
+    const o = await login('owner');
+    await req('/members', { method: 'POST', body: { name: '김서연', phone: '01011112222' } }, o);
+    await req('/payments/import', { method: 'POST', body: { batchId: 'batch-orig-01', rows: [kiosk({ externalId: 'O1' })] } }, o);
+    await req('/payments/import', { method: 'POST', body: { batchId: 'batch-refund-1', rows: [kiosk({ externalId: 'O1-C', status: 'CANCELLED', paidAt: '2026-10-19T12:00:00Z' })] } }, o);
+    const f = db.prepare("select id, refund_suggested_of s from payments where external_id='O1-C'").get();
+    await req(`/payments/${f.id}/refund-of`, { method: 'POST', body: { originalId: f.s } }, o);
+    const r = await req('/payments/import-batches/batch-refund-1/revert', { method: 'POST' }, o);
+    expect(r.status).toBe(409); expect(await r.json()).toEqual({ error: 'REFUND_LINKED', count: 1 });
+    expect(db.prepare("select count(*) n from payments where external_id='O1-C'").get()).toEqual({ n: 1 });
   });
   it('revertBatch on an unknown batch is a no-op', () => {
     const { db } = makeDb();

@@ -51,7 +51,8 @@ export function paymentRoutes(d: Deps) {
   r.post('/payments/import-batches/:id/revert', ownerOnly, (c) => {
     const id = c.req.param('id');
     if (!BATCH.test(id)) return bad(c);
-    return c.json(revertBatch(db, id, c.get('me').staffId));
+    const r = revertBatch(db, id, c.get('me').staffId);
+    return 'error' in r ? c.json(r, 409) : c.json(r);
   });
 
   // Manual single entry. Linked to memberId when given, otherwise to the only member with the payer's phone (same rule as import).
@@ -96,7 +97,7 @@ export function paymentRoutes(d: Deps) {
     if (!b || !str(b.originalId)) return bad(c);
     try {
       const r = linkRefund(db, id, b.originalId, c.get('me').staffId);
-      if (r !== 'OK') return c.json({ error: r }, r === 'NOT_REFUND' && !db.prepare('select 1 from payments where id=?').get(id) ? 404 : 409);
+      if (r !== 'OK') return c.json({ error: r }, r === 'NOT_FOUND' ? 404 : 409);
     } catch (e) {
       if (e instanceof PassInUseError) return c.json({ error: 'PASS_IN_USE', used: e.used }, 409);
       throw e;

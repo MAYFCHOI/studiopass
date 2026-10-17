@@ -65,9 +65,11 @@ export interface Payment {
   status: PaymentStatus;
   memberId?: string; // assigned member
   passId?: string; // pass created
-  /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행 */
-  review?: 'REFUND_IN_USE' | 'REFUND_UNMATCHED';
-  refundOf?: string; // 환불 행이 가리키는 원 결제
+  /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행,
+   *  REFUND_SUGGESTED: 원 결제 후보가 하나(refundSuggestedOf). 승인번호가 다른 환불은 사람이 확정할 때만 원 결제를 취소한다 */
+  review?: 'REFUND_IN_USE' | 'REFUND_UNMATCHED' | 'REFUND_SUGGESTED';
+  refundOf?: string; // 환불 행이 가리키는 원 결제(확정됨)
+  refundSuggestedOf?: string; // 환불 행의 원 결제 후보(확정 전)
   importBatchId?: string; // 엑셀 업로드 묶음(되돌리기용)
   raw?: Record<string, unknown>;
 }
@@ -134,7 +136,7 @@ export interface SettlementLine {
 
 export type ImportResult = {
   added: number; dup: number; matched: number; cancelled: number; cancelFailed: number;
-  refundUnmatched: number;
+  refundUnmatched: number; refundSuggested: number;
   /** 서버가 받지 않은 행. line = 엑셀 행 번호(알 때) */
   rejected: { line?: number; reason: string }[]; rejectedCount: number;
   batchId?: string;
@@ -175,12 +177,12 @@ export interface Actions {
    *  같은 승인번호의 취소 행은 저장된 승인 결제를 취소(cancelled), 출석에 쓰인 수강권이면 그대로 두고 cancelFailed. */
   importPayments(rows: ImportRow[], opts?: { batchId?: string }): Promise<ImportResult>;
   /** 원장 전용: 잘못 올린 업로드 묶음 되돌리기(출석에 쓰인 수강권의 결제는 남긴다) */
-  revertImport(batchId: string): Promise<{ removed: number; kept: number }>;
+  revertImport(batchId: string): Promise<{ ok: true; removed: number; kept: number } | { ok: false; error: 'REFUND_LINKED'; count: number }>;
   addPayment(p: NewPayment, opts?: { idempotencyKey?: string }): Promise<void>;
   /** 결제를 회원에게 연결. 이미 다른 회원에게 연결된 결제는 수강권을 옮긴다(출석에 쓰였으면 PASS_IN_USE). */
   assignPayment(paymentId: string, memberId: string): Promise<AssignResult>;
   /** 원 결제를 찾지 못한 환불 행에 원 결제를 고른다(원 결제가 취소된다) */
-  linkRefund(refundId: string, originalId: string): Promise<{ ok: true } | { ok: false; used: number }>;
+  linkRefund(refundId: string, originalId: string): Promise<{ ok: true } | { ok: false; error: string; used: number }>;
   /** 확인 필요 표시를 지운다(사람이 확인함) */
   clearReview(paymentId: string): Promise<void>;
   /** 회원 상세용 전체 기록(서버: bootstrap 의 62일 창 밖까지) */

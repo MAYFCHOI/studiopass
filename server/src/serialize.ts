@@ -23,7 +23,7 @@ export const toPass = (r: any, role: Role) => ({
   ...(owner(role) ? { price: r.price } : {}),
 });
 export const toPayment = (r: any, role: Role) => ({
-  id: r.id, source: r.source, externalId: opt(r.external_id), paidAt: r.paid_at, payerName: opt(r.payer_name), payerPhone: r.payer_phone, productName: r.product_name, status: r.status, memberId: opt(r.member_id), passId: opt(r.pass_id), review: opt(r.review), refundOf: opt(r.refund_of), importBatchId: opt(r.import_batch_id),
+  id: r.id, source: r.source, externalId: opt(r.external_id), paidAt: r.paid_at, payerName: opt(r.payer_name), payerPhone: r.payer_phone, productName: r.product_name, status: r.status, memberId: opt(r.member_id), passId: opt(r.pass_id), review: opt(r.review), refundOf: opt(r.refund_of), refundSuggestedOf: opt(r.refund_suggested_of), importBatchId: opt(r.import_batch_id),
   ...(owner(role) ? { amount: r.amount } : {}),
 });
 export const toAttendance = (r: any) => ({ id: r.id, memberId: r.member_id, passId: r.pass_id, courseId: r.course_id, instructorId: r.instructor_id, attendedAt: r.attended_at, attendedOn: r.attended_on, cancelledAt: opt(r.cancelled_at) });
