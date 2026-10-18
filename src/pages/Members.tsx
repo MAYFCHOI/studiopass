@@ -78,8 +78,15 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         return;
       }
       const copied = await navigator.clipboard?.writeText(text).then(() => true, () => false);
-      if (!copied) { window.prompt('아래 내용을 복사해 문자로 보내 주세요', text); } else toast('링크를 복사했어요');
       await s.recordMessage(m.id).catch(() => {});
+      // 데스크 맥: 학원 아이폰의 '문자 메시지 전달'로 맥 메시지 앱에서 보낸다. 본문이 안 채워지는 버전이 있어 클립보드에도 넣어 둔다.
+      if (/Macintosh/i.test(navigator.userAgent)) {
+        toast(copied ? '메시지 앱을 열어요. 본문이 비어 있으면 ⌘V 로 붙여 넣어 주세요' : '메시지 앱을 열어요');
+        window.location.assign('sms:' + m.phone + '&body=' + encodeURIComponent(text));
+        if (!copied) window.prompt('본문이 비어 있으면 아래 내용을 복사해 붙여 넣어 주세요', text);
+        return;
+      }
+      if (!copied) { window.prompt('아래 내용을 복사해 문자로 보내 주세요', text); } else toast('링크를 복사했어요');
     });
     const sendTalk = async () => {
       if (talkBusy) return;
