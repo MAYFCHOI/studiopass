@@ -205,7 +205,9 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             </button>
           );
         })}
-        {list.length === 0 && <div className="empty"><b>검색 결과가 없어요</b>아래에서 새 회원을 등록할 수 있어요</div>}
+        {list.length === 0 && (qq
+          ? <div className="empty"><b>검색 결과가 없어요</b>이름, 전화번호 뒷자리, 회원번호로 찾아 보세요</div>
+          : <div className="empty"><b>아직 회원이 없어요</b>새 회원 버튼으로 첫 회원을 등록해 주세요</div>)}
       </div>
       <div style={{ height: 70 }} />
       <button className="btn primary fab" onClick={() => { setForm({ name: '', phone: '', memo: '' }); setFormKey(newRequestKey()); setAdding(true); }}><Icon name="plus" />새 회원</button>

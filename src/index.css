@@ -365,7 +365,7 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
   .rail button:hover { opacity: 1; }
   .rail button[aria-current="page"] { opacity: 1; border-bottom-color: var(--ink); }
   .brand { padding-bottom: 14px; }
-  .fab { right: 40px; bottom: 32px; }
+  .fab { right: max(48px, calc((100% - 1080px) / 2)); bottom: 32px; }
   .settle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .settle-grid .settle { margin-bottom: 0; }
   .hero { margin: 40px 0 26px; }
@@ -388,6 +388,7 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 @media (min-width: 1200px) {
   .list.cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
   .list.cols .row:last-child { border-bottom: 1px solid var(--line); }
+  .list.cols > .empty { grid-column: 1 / -1; }
 }
 
 /* 정산: 흰 판 대신 검은 선 장부 */
