@@ -45,7 +45,7 @@ notify() {
 healthy() { # poll the api inside its container, up to ~60s
   local i
   for i in $(seq 1 30); do
-    if compose exec -T api curl -fsS --max-time 3 http://127.0.0.1:8787/api/healthz 2>/dev/null | grep -q '"ok":true'; then
+    if compose exec -T api curl -fsS --max-time 3 http://127.0.0.1:8787/api/healthz 2>/dev/null | grep '"ok":true' >/dev/null; then
       return 0
     fi
     sleep 2

@@ -12,7 +12,7 @@ say() { printf '[bootstrap] %s\n' "$*"; }
 export DEBIAN_FRONTEND=noninteractive
 
 say "swap (2GB, needed to build on the 1GB instance)"
-if ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
+if ! swapon --show=NAME --noheadings | grep -x /swapfile >/dev/null; then
   if [ ! -f /swapfile ]; then
     fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
     chmod 600 /swapfile
@@ -55,7 +55,7 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 CONF
 sshd -t
-if ! sshd -T | grep -qx 'passwordauthentication no'; then
+if ! sshd -T | grep -x 'passwordauthentication no' >/dev/null; then
   echo "sshd still allows password login (check /etc/ssh/sshd_config.d/); not reloading" >&2
   exit 1
 fi
