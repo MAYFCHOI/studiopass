@@ -196,6 +196,7 @@ textarea.input { height: auto; padding: 12px 14px; }
   .strip { margin: 0; padding: 4px 0 6px; }
   .scan-wrap { margin: 16px 0 0; max-width: 440px; border-radius: 8px; max-height: none; }
   .pass { max-width: 560px; }
+  .pass + .btn-row { max-width: 560px; }
   .sheet-bg { align-items: center; }
   .sheet { border-radius: 10px; }
   .toast { bottom: 28px; }
@@ -274,7 +275,7 @@ h2 { font-weight: 800; letter-spacing: -0.02em; }
 /* 회원 티켓 */
 .pass { background: var(--surface); color: var(--ink); border-radius: 10px; box-shadow: 0 2px 0 rgba(0,0,0,.12); }
 .pass .band { background: var(--ink); color: var(--paper); align-items: center; gap: 10px; justify-content: flex-start; }
-.pass .band-mark { height: 22px; width: auto; padding: 0; background: none; border-radius: 0; filter: invert(1); }
+.pass .band-mark { height: 22px; width: auto; padding: 0; background: none; border-radius: 0; }
 .pass .band span:not(.no) { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-size: 13px; line-height: .95; }
 .pass .band small { display: block; font-size: 8px; }
 .pass .band .no { margin-left: auto; color: var(--floor); opacity: 1; }

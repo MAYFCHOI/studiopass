@@ -11,7 +11,7 @@ html, body, #root { margin: 0; min-height: 100%; }
 body { background: var(--bg); color: var(--ink); font-family: var(--font); line-height: 1.45; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
 .screen { width: 100%; min-height: 100vh; min-height: 100dvh; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; padding: max(22px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
 .top { display: flex; justify-content: space-between; align-items: center; }
-.mark { display: block; height: 22px; width: auto; filter: invert(1); }
+.mark { display: block; height: 22px; width: auto; }
 .depth { display: grid; justify-items: end; gap: 3px; }
 .depth i { display: block; height: 5px; border-radius: 3px; background: rgba(240,240,240,.18); }
 .depth i:nth-child(1) { width: 46px; } .depth i:nth-child(2) { width: 38px; } .depth i:nth-child(3) { width: 30px; } .depth i:nth-child(4) { width: 22px; }

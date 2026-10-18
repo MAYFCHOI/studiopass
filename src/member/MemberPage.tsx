@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import logo from '../assets/logo-mark.png'
+import logo from '../assets/logo-mark-white.png'
 
 interface MemberData {
   studioName: string

@@ -7,7 +7,7 @@ import { fmtPhone, qrPayload, maybeWon } from '../lib/util';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { passName, courseTitle } from '../lib/labels';
-import logoMark from '../assets/logo-mark.png';
+import logoMark from '../assets/logo-mark-white.png';
 import { toast } from '../components/Toast';
 import { IS_DEMO } from '../lib/mode';
 import { matchMember, samePhoneMembers } from '../lib/search';
