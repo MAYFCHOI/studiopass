@@ -1,0 +1,263 @@
+<title>THE DEPTH 출석 앱 안내</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,700..900&family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<style>
+/* Layout: one reading column on paper, black poster bands for each part, orange for the thing to press */
+:root {
+  --paper: #f2f1ef;
+  --ink: #0d0d0d;
+  --ink-2: #3a3936;
+  --mute: #6d6a65;
+  --line: rgba(13,13,13,.14);
+  --orange: #ec6f1b;
+  --orange-ink: #0d0d0d;
+  --band: #0d0d0d;
+  --band-ink: #f2f1ef;
+  --tip: #fbe3d1;
+  --warn: #b3261e;
+  --display: 'Archivo', 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --body: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0f0f0e; --ink: #f0eee9; --ink-2: #cfccc5; --mute: #9b978f; --line: rgba(240,238,233,.16);
+  --orange: #f07a2a; --orange-ink: #0d0d0d; --band: #1e1d1b; --band-ink: #f0eee9; --tip: #3a2414; --warn: #ff8a80; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --paper: #0f0f0e; --ink: #f0eee9; --ink-2: #cfccc5; --mute: #9b978f; --line: rgba(240,238,233,.16);
+  --orange: #f07a2a; --orange-ink: #0d0d0d; --band: #1e1d1b; --band-ink: #f0eee9; --tip: #3a2414; --warn: #ff8a80; color-scheme: dark; }
+
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.7; word-break: keep-all; }
+.wrap { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+.cover { background: var(--orange); color: var(--orange-ink); }
+.cover .wrap { padding-block: 44px 36px; }
+.cover .brand { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-size: clamp(34px, 9vw, 60px); line-height: .92; letter-spacing: -.01em; margin: 0; text-transform: uppercase; }
+.cover .brand small { display: block; font-size: .36em; font-stretch: 112%; letter-spacing: .14em; margin-top: 8px; }
+.cover h1 { font-size: 22px; font-weight: 900; margin: 26px 0 6px; text-wrap: balance; }
+.cover p { margin: 0; max-width: 34em; font-weight: 500; }
+.addr { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; background: var(--band); color: var(--band-ink); padding: 10px 14px; border-radius: 4px; font-family: var(--display); font-stretch: 110%; font-weight: 800; font-size: 18px; }
+.addr button { font: 600 13px var(--body); background: var(--orange); color: var(--orange-ink); border: 0; border-radius: 3px; padding: 5px 10px; cursor: pointer; }
+
+nav.toc { border-bottom: 1px solid var(--line); }
+nav.toc .wrap { padding-block: 16px; display: flex; flex-wrap: wrap; gap: 6px 8px; }
+nav.toc a { color: var(--ink); text-decoration: none; font-size: 14px; font-weight: 600; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+nav.toc a:hover, nav.toc a:focus-visible { border-color: var(--orange); }
+
+.part { background: var(--band); color: var(--band-ink); margin-top: 44px; }
+.part .wrap { padding-block: 16px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.part .when { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-size: 13px; letter-spacing: .12em; color: var(--orange); text-transform: uppercase; }
+.part h2 { margin: 0; font-size: 22px; font-weight: 900; text-wrap: balance; }
+
+section.topic { padding-block: 22px 4px; }
+h3 { font-size: 19px; font-weight: 900; margin: 18px 0 8px; text-wrap: balance; }
+p { margin: 0 0 12px; }
+.lead { color: var(--ink-2); }
+
+ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 4px 0 14px; display: grid; gap: 10px; }
+ol.steps > li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
+ol.steps > li::before { content: counter(s); font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: 15px; width: 30px; height: 30px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; line-height: 1; }
+ol.steps > li > div { min-width: 0; padding-top: 2px; }
+
+.btn { display: inline-block; background: var(--orange); color: var(--orange-ink); font-weight: 700; font-size: .92em; padding: 0 7px; border-radius: 3px; white-space: nowrap; }
+.tab { display: inline-block; border: 1.5px solid var(--ink); font-weight: 700; font-size: .9em; padding: 0 6px; border-radius: 3px; white-space: nowrap; }
+
+.tip { background: var(--tip); border-radius: 4px; padding: 12px 14px; margin: 6px 0 16px; }
+.tip b:first-child { margin-right: 4px; }
+.warn { border-left: 4px solid var(--warn); padding: 4px 0 4px 12px; margin: 6px 0 16px; }
+
+.tbl { overflow-x: auto; margin: 6px 0 16px; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 13px; color: var(--mute); font-weight: 700; }
+td:first-child { font-weight: 700; white-space: nowrap; }
+
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 8px 0 16px; }
+.role { border: 1.5px solid var(--ink); border-radius: 4px; padding: 14px; }
+.role h4 { margin: 0 0 6px; font-size: 16px; font-weight: 900; }
+.role p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+footer { margin-top: 48px; border-top: 1px solid var(--line); }
+footer .wrap { padding-block: 22px 40px; color: var(--mute); font-size: 14px; }
+
+:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+</style>
+
+<header class="cover">
+  <div class="wrap">
+    <p class="brand">The Depth<small>Dance Studio</small></p>
+    <h1>출석 · 수강권 · 정산 앱 사용 안내</h1>
+    <p>회원 QR 로 출석을 받고, 키오스크 결제를 수강권으로 바꾸고, 월말에 강사 정산을 뽑는 앱입니다. 처음 한 번 할 일과 매일 하는 일, 월말에 하는 일 순서로 적었습니다.</p>
+    <div class="addr"><span id="site">thedepthdance.com</span><button type="button" id="copy">주소 복사</button></div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="목차">
+  <div class="wrap">
+    <a href="#start">시작하기</a><a href="#setup">처음 한 번</a><a href="#attend">출석</a><a href="#member">새 회원</a><a href="#pay">결제</a><a href="#fix">실수 고치기</a><a href="#settle">월말 정산</a><a href="#trouble">문제가 생기면</a>
+  </div>
+</nav>
+
+<main>
+  <div class="part" id="start"><div class="wrap"><span class="when">Start</span><h2>시작하기</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <h3>계정은 두 종류입니다</h3>
+    <div class="roles">
+      <div class="role"><h4>원장 계정</h4><p>모든 화면을 씁니다. 정산, 설정(상품 · 가격 · 강사 조건 · 시간표), 회원 정보 삭제는 원장 계정에서만 보입니다.</p></div>
+      <div class="role"><h4>인포 계정</h4><p>데스크에서 같이 쓰는 계정입니다. 오늘, 출석, 회원, 결제만 보입니다. 금액은 서버가 아예 보내지 않아서 어디에도 나오지 않습니다.</p></div>
+    </div>
+    <p>아이디와 비밀번호는 따로 전달드립니다. 비밀번호를 바꾸거나 잊으셨으면 관리자(정민)에게 말씀해 주세요. 바로 새로 만들어 드립니다.</p>
+    <h3>데스크 기기에 바로가기 만들기</h3>
+    <ol class="steps">
+      <li><div>데스크에서 쓸 폰이나 태블릿으로 <b>thedepthdance.com</b> 을 열고 로그인합니다.</div></li>
+      <li><div>아이폰은 공유 버튼 &gt; <b>홈 화면에 추가</b>, 안드로이드는 크롬 메뉴 &gt; <b>홈 화면에 추가</b>를 누릅니다.</div></li>
+      <li><div>처음 출석 화면을 열 때 카메라 권한을 묻습니다. <b>허용</b>을 눌러야 QR 을 읽습니다.</div></li>
+    </ol>
+    <p>로그인은 30일 동안 유지됩니다. 오른쪽 위 <span class="tab">로그아웃</span> 을 누르지 않으면 매번 로그인하지 않아도 됩니다.</p>
+  </div></section>
+
+  <div class="part" id="setup"><div class="wrap"><span class="when">Once</span><h2>처음 한 번 해 주세요 (원장 계정)</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <p class="lead">처음 열면 설정 화면 맨 위에 "수강권 가격과 강사 정산 조건이 아직 예시값이에요" 안내가 보입니다. 아래 세 가지를 실제 값으로 바꾸면 됩니다.</p>
+
+    <h3>1. 수강권 상품 이름을 키오스크와 똑같이</h3>
+    <p>가장 중요한 단계입니다. 키오스크 결제 내역의 상품명이 여기 이름과 <b>글자 하나까지</b> 같아야 결제가 들어올 때 수강권이 자동으로 생깁니다.</p>
+    <ol class="steps">
+      <li><div>키오스크 관리 웹에 들어가서 판매 중인 상품명을 그대로 복사합니다. 띄어쓰기와 괄호도 같아야 합니다.</div></li>
+      <li><div>앱 오른쪽 위 톱니바퀴(<span class="tab">설정</span>) &gt; <b>수강권 상품</b>에서 상품을 누릅니다.</div></li>
+      <li><div><b>상품명</b>에 붙여 넣고 종류, 회차, 유효 기간(일), 가격을 넣은 뒤 <span class="btn">저장</span> 합니다.</div></li>
+      <li><div>키오스크에만 있는 상품은 <span class="btn">상품 추가</span> 로 만듭니다. 더 이상 팔지 않는 상품은 지우지 말고 <b>쉬는 중</b>으로 바꿉니다. 지난 기록은 그대로 남습니다.</div></li>
+    </ol>
+    <div class="tbl"><table>
+      <thead><tr><th>종류</th><th>쓰는 곳</th><th>기간</th></tr></thead>
+      <tbody>
+        <tr><td>회차권</td><td>HUB · LAB 정규 수업 어디서나. 특정 수업 전용으로도 만들 수 있습니다.</td><td>결제일부터 상품에 정한 일수</td></tr>
+        <tr><td>전문반 월정액</td><td>LAB 첫 타임 PRO Class. 정해진 횟수 안에서 자유 수강합니다.</td><td>결제일부터 30일, 이월 없음</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>2. 강사 정산 조건</h3>
+    <p><b>강사와 정산 기준</b>에서 강사를 누르고 정산 방식을 고릅니다. 지금은 모두 예시값(50:50)입니다.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>방식</th><th>계산</th></tr></thead>
+      <tbody>
+        <tr><td>비율제</td><td>출석 1회 가치(수강권 가격 ÷ 총 회차)를 이달 출석만큼 더해서 학원:강사 비율로 나눕니다. 비율은 막대로 5% 단위로 정합니다.</td></tr>
+        <tr><td>타임제</td><td>출석이 1명 이상 있던 수업 1번 = 1타임. 1타임 금액 × 타임 수를 드리고, 수강권 매출은 전액 학원 몫입니다.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>3. 시간표 확인</h3>
+    <p>포스터 기준으로 시간표가 들어가 있습니다. <b>수업 시간표</b>의 칸을 누르면 장르, 강사, 홀, 레벨, 요일, 시간을 고칠 수 있습니다. 한동안 쉬는 수업은 <b>쉬는 중</b>으로 두면 출석 화면에서 빠집니다.</p>
+  </div></section>
+
+  <div class="part" id="attend"><div class="wrap"><span class="when">Daily</span><h2>출석 받기</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <ol class="steps">
+      <li><div>아래 메뉴 <span class="tab">출석</span> 을 누릅니다. 지금 시각에 가장 가까운 수업이 자동으로 골라져 있습니다. 다른 수업이면 위쪽 수업 칸을 누릅니다.</div></li>
+      <li><div>회원이 폰에 띄운 QR 을 카메라 네모 안에 맞춥니다.</div></li>
+      <li><div>화면이 크게 바뀌면서 결과가 나옵니다. <b>출석 완료</b>면 이름, 남은 횟수, 기간이 보입니다.</div></li>
+      <li><div><span class="btn">다음 사람</span> 을 누르고 다음 회원 QR 을 찍습니다.</div></li>
+    </ol>
+    <div class="tip"><b>QR 이 없을 때</b> 출석 화면 아래 <b>이름으로 출석</b>에 이름, 전화번호 뒷자리, 회원번호 중 하나를 넣고 회원을 누르면 됩니다.</div>
+    <h3>"출석 안 됨"이 뜨면</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>화면 문구</th><th>이렇게 하세요</th></tr></thead>
+      <tbody>
+        <tr><td>오늘 이 수업은 이미 출석했어요</td><td>같은 날 같은 수업은 한 번만 들어갑니다. 그대로 두시면 됩니다.</td></tr>
+        <tr><td>남은 횟수가 없어요</td><td>새 수강권 결제가 필요합니다.</td></tr>
+        <tr><td>수강권 기간이 지났어요</td><td>새 수강권 결제가 필요합니다.</td></tr>
+        <tr><td>전문반 수업이에요</td><td>PRO Class 는 전문반 월정액으로만 들어갑니다.</td></tr>
+        <tr><td>이 수업에 쓸 수강권이 없어요</td><td>결제가 아직 앱에 안 들어왔을 수 있습니다. 결제 화면의 확인 필요부터 봅니다.</td></tr>
+        <tr><td>이 스튜디오의 QR 이 아니에요</td><td>다른 곳 QR 이거나 예전 링크입니다. 회원에게 링크를 다시 보내 줍니다.</td></tr>
+        <tr><td>서버에 연결하지 못했어요</td><td>인터넷이 끊겼습니다. 출석한 분 이름을 적어 두었다가 연결되면 이름으로 출석을 넣습니다.</td></tr>
+      </tbody>
+    </table></div>
+  </div></section>
+
+  <div class="part" id="member"><div class="wrap"><span class="when">Daily</span><h2>새 회원 등록</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <ol class="steps">
+      <li><div><span class="tab">회원</span> &gt; 오른쪽 아래 <span class="btn">새 회원</span> 을 누릅니다.</div></li>
+      <li><div>이름과 휴대폰 번호를 넣습니다. <b>키오스크에서 결제할 때 쓰는 번호</b>와 같아야 결제가 자동으로 이 회원에게 붙습니다.</div></li>
+      <li><div><span class="btn">등록하고 QR 만들기</span> 를 누르면 회원 화면이 열립니다.</div></li>
+      <li><div><span class="btn">링크 문자 보내기</span> 를 누르면 문자 앱이 열리고 본문에 회원 페이지 링크가 채워져 있습니다. 그대로 보냅니다.</div></li>
+    </ol>
+    <p>회원은 그 링크를 열어 <b>홈 화면에 추가</b>해 두고, 출석할 때 그 화면의 QR 을 보여주면 됩니다. 회원 페이지에는 남은 횟수와 기간, 출석 횟수에 따른 등급이 보이고 금액은 보이지 않습니다.</p>
+    <div class="warn">메모에는 건강, 종교 같은 민감한 정보를 적지 마세요. 가족이 같은 번호를 쓰면 키오스크 결제가 자동으로 연결되지 않으니, 그때는 결제 화면에서 직접 골라 줍니다.</div>
+  </div></section>
+
+  <div class="part" id="pay"><div class="wrap"><span class="when">Daily</span><h2>결제 넣기</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <h3>키오스크 결제 (하루 한 번)</h3>
+    <ol class="steps">
+      <li><div>키오스크 관리 웹에서 결제 내역을 엑셀로 내려받습니다. 기간은 넉넉하게 잡아도 됩니다. 이미 넣은 결제는 중복으로 빠집니다.</div></li>
+      <li><div><span class="tab">결제</span> &gt; <span class="btn">키오스크 엑셀 올리기</span> 를 누르고 파일을 고릅니다.</div></li>
+      <li><div>"몇 건 불러오기" 창의 <b>미리보기</b>에서 일시, 금액, 상품명, 번호가 맞게 보이는지 확인합니다. 이상하면 각 항목 옆에서 맞는 컬럼을 고릅니다.</div></li>
+      <li><div><span class="btn">불러오기</span> 를 누르면 결과가 나옵니다. 추가, 중복, 자동 연결, 환불 반영 건수를 확인합니다.</div></li>
+    </ol>
+    <h3>확인 필요 탭 정리</h3>
+    <p>자동으로 처리하지 못한 결제만 여기에 남습니다. 오른쪽 주황 표시를 보고 처리합니다.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>표시</th><th>뜻과 처리</th></tr></thead>
+      <tbody>
+        <tr><td>회원 연결</td><td>번호가 맞는 회원이 없거나 같은 번호 회원이 여럿입니다. 눌러서 맞는 회원을 고릅니다. 처음 온 분이면 <b>새 회원으로 등록</b>합니다.</td></tr>
+        <tr><td>상품 미확인</td><td>회원은 찾았지만 키오스크 상품명이 설정의 상품과 다릅니다. 설정에서 상품명을 키오스크와 똑같이 고친 뒤 <b>다시 연결</b>을 누릅니다.</td></tr>
+        <tr><td>환불 확인</td><td>키오스크에서 환불된 건입니다. 앱이 원래 결제 후보를 보여줍니다. 맞으면 <b>이 결제 환불 처리</b>를 누릅니다. 되돌릴 수 없으니 이름과 날짜를 꼭 확인하세요.</td></tr>
+        <tr><td>원 결제 고르기</td><td>원래 결제를 찾지 못한 환불입니다. 목록에서 맞는 결제를 고르거나, 앱에 없는 결제면 <b>원 결제가 이 앱에 없어요</b>를 누릅니다.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tip"><b>파일을 잘못 올렸다면</b> 결과 창의 <b>이 업로드 되돌리기</b>를 누르고 다시 올리면 됩니다(원장 계정). 이미 출석에 쓰인 수강권의 결제는 남습니다.</div>
+    <h3>현금 · 계좌이체</h3>
+    <p><span class="tab">결제</span> &gt; <span class="btn">직접 입력</span> 에서 회원, 상품, 금액을 고르고 <span class="btn">등록</span> 하면 수강권이 바로 생깁니다.</p>
+  </div></section>
+
+  <div class="part" id="fix"><div class="wrap"><span class="when">Fix</span><h2>실수 고치기</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <div class="tbl"><table>
+      <thead><tr><th>상황</th><th>방법</th></tr></thead>
+      <tbody>
+        <tr><td>출석을 잘못 넣음</td><td><span class="tab">회원</span> &gt; 회원 &gt; 출석 기록에서 그 줄의 <b>취소</b>. 횟수가 돌아옵니다.</td></tr>
+        <tr><td>다른 회원에게 붙은 결제</td><td><span class="tab">결제</span> &gt; 전체 &gt; 그 결제의 <b>변경</b>에서 맞는 회원을 고릅니다. 이미 그 수강권으로 출석했다면 출석을 먼저 취소합니다.</td></tr>
+        <tr><td>결제 자체를 없애야 함</td><td>결제를 눌러 <b>취소 처리</b>. 수강권도 같이 없어집니다.</td></tr>
+        <tr><td>이름 · 번호 수정</td><td>회원 화면의 <span class="btn">정보 수정</span>.</td></tr>
+        <tr><td>회원이 정보 삭제를 요청함</td><td>원장 계정으로 회원 화면 맨 아래 <b>회원 정보 삭제</b>. 이름과 번호는 지워지고, 정산 숫자는 바뀌지 않습니다. 되돌릴 수 없습니다.</td></tr>
+        <tr><td>회원이 폰을 바꿈 · 링크를 잃어버림</td><td>회원 화면에서 <span class="btn">링크 문자 보내기</span> 를 다시 누릅니다. 예전 링크와 바로가기는 막히니 새 링크로 다시 홈 화면에 추가하도록 안내합니다.</td></tr>
+      </tbody>
+    </table></div>
+  </div></section>
+
+  <div class="part" id="settle"><div class="wrap"><span class="when">Monthly</span><h2>월말 정산 (원장 계정)</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <ol class="steps">
+      <li><div><span class="tab">정산</span> 을 누르고 위쪽 ‹ › 로 달을 고릅니다.</div></li>
+      <li><div>맨 위 큰 숫자가 그 달 <b>강사에게 줄 돈</b> 합계입니다. 아래 표에 강사별 수업 횟수, 출석 인원, 매출, 학원 몫, 강사 지급액이 나옵니다.</div></li>
+      <li><div><span class="btn">엑셀로 받기</span> 를 누르면 강사별 정산, 출석 상세, 결제 세 장짜리 파일이 저장됩니다.</div></li>
+    </ol>
+    <p>전문반 월정액 출석은 금액으로 바꾸지 않고 강사별 횟수만 따로 표시합니다. 정산 전에 결제 화면의 확인 필요가 비어 있는지 먼저 보면 숫자가 정확합니다.</p>
+  </div></section>
+
+  <div class="part" id="trouble"><div class="wrap"><span class="when">Help</span><h2>문제가 생기면</h2></div></div>
+  <section class="topic"><div class="wrap">
+    <div class="tbl"><table>
+      <thead><tr><th>상황</th><th>방법</th></tr></thead>
+      <tbody>
+        <tr><td>위에 "연결 끊김" 띠가 보임</td><td>와이파이나 데이터를 확인합니다. 그동안 출석한 분은 이름을 적어 두었다가 다시 연결되면 이름으로 출석을 넣습니다.</td></tr>
+        <tr><td>카메라가 안 열림</td><td>주소창 옆 카메라 권한을 허용하고 화면을 다시 엽니다. 그래도 안 되면 이름으로 출석을 씁니다.</td></tr>
+        <tr><td>사이트가 아예 안 열림</td><td>관리자(정민)에게 연락합니다. 서버에 문제가 생기면 관리자 폰으로 알림이 먼저 갑니다.</td></tr>
+        <tr><td>비밀번호를 잊음</td><td>관리자(정민)에게 말씀하시면 새로 만들어 드립니다.</td></tr>
+      </tbody>
+    </table></div>
+    <p>모든 기록은 서버에 저장되고 매일 새벽 자동으로 백업됩니다. 백업은 30일치를 보관합니다.</p>
+  </div></section>
+</main>
+
+<footer><div class="wrap">THE DEPTH DANCE STUDIO · 앱 문의는 관리자(정민)에게</div></footer>
+
+<script>
+document.getElementById('copy').addEventListener('click', function () {
+  var b = this, t = 'https://thedepthdance.com';
+  function done(msg) { b.textContent = msg; setTimeout(function () { b.textContent = '주소 복사'; }, 1600); }
+  function select() { var r = document.createRange(); r.selectNodeContents(document.getElementById('site')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); done('선택됨'); }
+  try { navigator.clipboard.writeText(t).then(function () { done('복사됨'); }, select); } catch (e) { select(); }
+});
+</script>
