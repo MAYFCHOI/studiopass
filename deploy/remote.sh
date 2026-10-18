@@ -176,7 +176,7 @@ cmd_deploy() {
     notify "studiopass 배포 실패"
     say "no previous version to roll back to"
   fi
-  compose logs --tail 50 api || true
+  TAG="$tag" compose logs --tail 50 api || true
   exit 1
 }
 

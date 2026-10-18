@@ -9,6 +9,8 @@ RUN npm run build
 FROM node:22-bookworm-slim AS srv
 WORKDIR /w/server
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+# shared/ compiles against the root package.json ("type": "module"); without it tsc emits CommonJS
+COPY package.json ../package.json
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY server ./
