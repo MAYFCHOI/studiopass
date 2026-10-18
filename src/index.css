@@ -238,6 +238,8 @@ h2 { font-weight: 800; letter-spacing: -0.02em; }
 .row { border-bottom-color: var(--line); }
 .row .d, .row .right { color: var(--mute); }
 .row .right b { color: var(--ink); font-family: var(--display); font-weight: 900; }
+.row .right.inline { white-space: nowrap; }
+.row .right.inline b { display: inline; margin-right: 2px; }
 .avatar { background: var(--ink); color: var(--floor); }
 .chip { background: rgba(17,17,17,.12); color: var(--ink); }
 .chip.amber { background: var(--ink); color: var(--floor); }

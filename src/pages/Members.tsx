@@ -132,7 +132,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
               return (
                 <div className="row" key={p.id}>
                   <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
-                  <div className="right"><b className="num">{p.remaining}</b>/ {p.totalCount}</div>
+                  <div className="right inline"><b className="num">{p.remaining}</b> / {p.totalCount}</div>
                 </div>
               );
             })}
@@ -208,7 +208,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             <button className="row" key={m.id} onClick={() => go('members', m.id)}>
               <div className="avatar">{m.name.slice(-2)}</div>
               <div className="main"><div className="t">{m.name} {ap.some((p) => p.kind === 'PERIOD') && <span className="chip pro">전문반</span>}</div><div className="d">{last ? `마지막 출석 ${dayjs(last.attendedAt).format('M/D')}` : '출석 기록 없음'} · {fmtPhone(m.phone)}</div></div>
-              <div className="right">{ap.length ? <><b className="num">{left}</b>남음</> : <span className="chip danger">수강권 없음</span>}</div>
+              <div className="right inline">{ap.length ? <><b className="num">{left}</b>회 남음</> : <span className="chip danger">수강권 없음</span>}</div>
             </button>
           );
         })}
