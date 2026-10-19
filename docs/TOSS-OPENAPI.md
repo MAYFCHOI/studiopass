@@ -59,3 +59,22 @@
 연동 범위는 결제 조회와 결제 승인·취소 웹훅 수신만 필요하며, 주문 생성이나 배달 기능은 사용하지 않습니다.
 
 답변 부탁드립니다. 감사합니다.
+
+## 구현 (브랜치 feat/toss, 10-19, 미배포)
+- 웹훅 주소: `https://thedepthdance.com/hooks/toss` (/api 밖, 세션·Origin 검사 없음, 서명으로만 받음). 개발자센터 웹훅 수신 범위 = `payment.payment.approved.v1`, `payment.payment.cancelled.v1`.
+- 흐름: 서명 검증(HMAC-SHA256, 5분 시각 허용) → `toss_events` 에 webhook_id 로 한 번만 기록 → 바로 200 → 뒤에서 처리. 승인은 주문 조회로 상품명(lineItems), 5번 실패하면 금액으로 적재. 우리에게 승인 기록이 없는 취소는 버림.
+- 적재: `toss:<결제ID>` 를 승인번호 자리에 두고 기존 `ingestPayments` 그대로(중복·취소·출석 쓴 수강권 취소 시 REFUND_IN_USE). 결제자 번호가 없어서 회원 연결은 데스크(배정 대기).
+- 대조: 6시간마다(시작 30초 뒤 한 번) 최근 48시간 주문 목록으로 빠진 결제 적재. 대기 처리는 1분마다 + 웹훅 즉시.
+- 알림: `NTFY_TOPIC`(alerts.env) 로 대조 실패·처리 지연을 [ISSUE]/[RESOLVED].
+- 설정: 서버 `/etc/studiopass/toss.env` (600) `SP_TOSS_ACCESS_KEY`, `SP_TOSS_SECRET_KEY`, `SP_TOSS_MERCHANT_ID`(숫자 매장 ID, POS 매장고유번호 아님), `SP_TOSS_WEBHOOK_SECRET`. 하나라도 비면 꺼짐(웹훅 404, 네트워크 안 씀). 바꾼 뒤 `up -d --force-recreate api`.
+- 코드: server/src/toss/{config,signature,client,mapper,sync,routes,runner}.ts, server/migrations/006_toss.sql, 테스트 server/test/toss.test.ts(토스 문서 서명 예시로 검증).
+
+## 실데이터로 확인할 것 (테스트 가맹점 또는 첫 실결제)
+- approvedAt 등 시각에 오프셋이 없는지(없으면 한국 시각으로 읽음, mapper.tossTime).
+- 토스 POS·키오스크 주문의 lineItems.item.title 이 상품명 그대로 오는지.
+- 웹훅 서명이 문서대로인지(실패하면 401 → 토스가 재시도하다 중단할 수 있으니 첫 연결 때 로그 확인).
+- 주문 목록 from/to 형식(ISO UTC 로 보냄) 이 받아들여지는지.
+
+## 롤백
+- 원인이 토스 연동일 때만: `/etc/studiopass/toss.env` 키를 비우고 `up -d --force-recreate api` → 웹훅 404, 동기화 멈춤(1분). 결제는 엑셀 업로드로 계속. 이미 들어온 토스 결제는 그대로 남음.
+- 코드까지 되돌리려면 이전 배포 태그로 재배포(RUNBOOK). 006 마이그레이션은 테이블 추가뿐이라 이전 코드와 함께 둬도 무해.

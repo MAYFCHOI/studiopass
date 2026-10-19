@@ -17,6 +17,12 @@ services:
     env_file:
       - path: /etc/studiopass/alimtalk.env
         required: false
+      # Toss Place Open API keys (docs/TOSS-OPENAPI.md). Optional: missing file or any empty key = toss off.
+      - path: /etc/studiopass/toss.env
+        required: false
+      # NTFY_TOPIC for toss sync alerts ([ISSUE]/[RESOLVED]); same topic the host scripts use.
+      - path: /etc/studiopass/alerts.env
+        required: false
     environment:
       - NODE_ENV=production
       - SP_ORIGIN=https://${DOMAIN:?DOMAIN is required}
