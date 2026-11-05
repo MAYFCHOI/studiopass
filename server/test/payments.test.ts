@@ -104,3 +104,25 @@ describe('payments', () => {
     expect((db.prepare('select pass_id from payments').get() as any).pass_id).toBeTruthy();
   });
 });
+
+describe('drop-in (원데이) products', () => {
+  it('marks drop-in payments and lets desk write just a name', async () => {
+    const { db, course } = makeDb(); const c = course();
+    db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_t','(1 TICKET) YUZ',?, 'COUNT',1,30,35000,1)").run(c.id);
+    ingestPayments(db, [row({ externalId: 't1', productName: '(1 TICKET) YUZ', amount: 35000, payerPhone: '', payerName: null })], null);
+    const p = db.prepare('select id, drop_in, member_id, payer_name from payments').get() as any;
+    expect(p).toMatchObject({ drop_in: 1, member_id: null, payer_name: null });
+    const { setPayerName } = await import('../src/domain/payments.js');
+    expect(setPayerName(db, p.id, ' 홍길동 ', 'st')).toBe(true);
+    expect((db.prepare('select payer_name from payments').get() as any).payer_name).toBe('홍길동');
+    // 회원에게 연결하면 보통 결제처럼 수강권이 생기고, 이름 덮어쓰기는 막힌다
+    const m = db.prepare("insert into members(id,member_no,name,phone,created_at) values('mx','2026-9999','회원','01000000000','x')").run() && 'mx';
+    expect(assignPayment(db, p.id, m, 'st').passId).toBeTruthy();
+    expect(setPayerName(db, p.id, '다른이름', 'st')).toBe(false);
+  });
+  it('ordinary products are not marked', () => {
+    const { db } = makeDb();
+    ingestPayments(db, [row({ payerPhone: '' })], null);
+    expect((db.prepare('select drop_in from payments').get() as any).drop_in).toBe(0);
+  });
+});

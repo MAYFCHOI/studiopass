@@ -187,6 +187,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
               payments: s.payments.map((p) => (p.memberId === id ? { ...p, payerName: undefined, payerPhone: '' } : p)),
             }));
           },
+          setPayerName: async (paymentId, name) => { patchPayment(paymentId, { payerName: name.trim() }); },
           erasePayer: async (paymentId) => { set((s) => ({ payments: s.payments.map((p) => (p.id === paymentId && !p.memberId ? { ...p, payerName: undefined, payerPhone: '' } : p)) })); },
           issueLink: async (memberId) => location.href.split('#')[0] + '#/members/' + memberId,
           recordMessage: async () => {},

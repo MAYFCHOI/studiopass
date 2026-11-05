@@ -62,14 +62,14 @@ export function ownerRoutes(d: Deps) {
     if (!b) return bad(c);
     const cur = db.prepare('select * from products where id=?').get(id) as any;
     const v = { ...(cur ? toProduct(cur, 'OWNER') : {}), ...b } as any;
-    if (!str(v.name) || !maxLen(v.name, LIMITS.productName) || !optStr(v.courseId) || !['COUNT', 'PERIOD'].includes(v.passKind) || !int(v.count, 1) || !int(v.periodDays, 1) || !int(v.price) || !bool(v.active)) return bad(c);
+    if (!str(v.name) || !maxLen(v.name, LIMITS.productName) || !optStr(v.courseId) || !['COUNT', 'PERIOD'].includes(v.passKind) || !int(v.count, 1) || !int(v.periodDays, 1) || !int(v.price) || !bool(v.active) || !bool(v.dropIn)) return bad(c);
     if (v.courseId && !db.prepare('select 1 from courses where id=?').get(v.courseId)) return bad(c);
     const clash = db.prepare('select id from products where name=? and id<>?').get(v.name.trim(), id);
     if (clash) return c.json({ error: 'DUPLICATE_NAME' }, 409);
     // Ruling 7: an owner saving any product means prices are no longer the seeded samples.
     db.transaction(() => {
-      db.prepare('insert into products(id,name,course_id,pass_kind,count,period_days,price,active) values(?,?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name, course_id=excluded.course_id, pass_kind=excluded.pass_kind, count=excluded.count, period_days=excluded.period_days, price=excluded.price, active=excluded.active')
-        .run(id, v.name.trim(), v.courseId ?? null, v.passKind, v.count, v.periodDays, v.price, v.active === false ? 0 : 1);
+      db.prepare('insert into products(id,name,course_id,pass_kind,count,period_days,price,active,drop_in) values(?,?,?,?,?,?,?,?,?) on conflict(id) do update set name=excluded.name, course_id=excluded.course_id, pass_kind=excluded.pass_kind, count=excluded.count, period_days=excluded.period_days, price=excluded.price, active=excluded.active, drop_in=excluded.drop_in')
+        .run(id, v.name.trim(), v.courseId ?? null, v.passKind, v.count, v.periodDays, v.price, v.active === false ? 0 : 1, v.dropIn === true ? 1 : 0);
       db.prepare("insert into settings(key,value) values('needs_real_prices','0') on conflict(key) do update set value='0'").run();
       audit(db, c.get('me').staffId, cur ? 'product.update' : 'product.create', 'product', id, b);
     })();

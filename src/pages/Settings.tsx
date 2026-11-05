@@ -61,7 +61,7 @@ export default function Settings() {
       <div className="list">
         {s.products.map((p) => (
           <button className="row" key={p.id} style={off(p) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'product', v: { ...p } })}>
-            <div className="main"><div className="t">{p.name}</div><div className="d">{p.passKind === 'PERIOD' ? `월정액 · ${p.count}회 자유수강 · ${p.periodDays}일` : `${(() => { const c = s.courses.find((x) => x.id === p.courseId); return c ? courseTitle(s, c) + ' 전용' : '정규 수업 아무거나'; })()} · ${p.count}회 · ${p.periodDays}일`}{off(p) && ' · 쉬는 중'}</div></div>
+            <div className="main"><div className="t">{p.name}</div><div className="d">{p.passKind === 'PERIOD' ? `월정액 · ${p.count}회 자유수강 · ${p.periodDays}일` : `${(() => { const c = s.courses.find((x) => x.id === p.courseId); return c ? courseTitle(s, c) + ' 전용' : '정규 수업 아무거나'; })()} · ${p.count}회 · ${p.periodDays}일`}{p.dropIn && ' · 원데이'}{off(p) && ' · 쉬는 중'}</div></div>
             <div className="right num">{maybeWon(p.price)}</div>
           </button>
         ))}
@@ -132,6 +132,7 @@ export default function Settings() {
             <div className="field"><label>유효 기간(일)</label><input className="input" inputMode="numeric" value={edit.v.periodDays} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, periodDays: Number(e.target.value) || 0 } })} /></div>
           </div>
           <div className="field"><label>가격</label><input className="input" inputMode="numeric" value={edit.v.price ?? 0} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, price: Number(e.target.value.replace(/\D/g, '')) } })} /></div>
+          {edit.v.passKind === 'COUNT' && <div className="field"><label>원데이 (회원 없이 결제만)</label><div className="seg"><button aria-pressed={!edit.v.dropIn} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, dropIn: false } })}>회원 수강권</button><button aria-pressed={!!edit.v.dropIn} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, dropIn: true } })}>원데이</button></div><p className="sub" style={{ margin: '6px 0 0' }}>원데이는 결제가 들어오면 회원 연결 대신 손님 이름만 적어요. 정산은 이 상품의 수업 강사 몫으로 들어가요.</p></div>}
           <ActiveField what="상품" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'product', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertProduct(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>

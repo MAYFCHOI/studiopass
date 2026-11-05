@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { newId, nowIso, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
-import { type PaymentInput, ingestPayments, assignPayment, cancelPayment, linkRefund, clearReview, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
+import { type PaymentInput, ingestPayments, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
 import { idemKey, idemGet, idemPut } from '../idempotency.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
@@ -103,6 +103,17 @@ export function paymentRoutes(d: Deps) {
       throw e;
     }
     return c.json({ ok: true });
+  });
+
+  // 원데이 손님 이름만 적기(회원 등록 없이). 회원에게 연결된 결제는 409 LINKED.
+  r.post('/payments/:id/payer-name', async (c) => {
+    const b = await body(c); const id = c.req.param('id');
+    if (!b || !str(b.name) || !maxLen(b.name, LIMITS.payerName)) return bad(c);
+    const p = db.prepare('select member_id from payments where id=?').get(id) as { member_id: string | null } | undefined;
+    if (!p) return notFound(c);
+    if (p.member_id) return c.json({ error: 'LINKED' }, 409);
+    setPayerName(db, id, b.name, c.get('me').staffId);
+    return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
   });
 
   // 확인 필요 표시 지우기(사람이 확인함).

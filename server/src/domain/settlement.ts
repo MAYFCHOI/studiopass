@@ -1,16 +1,33 @@
 import type { Db } from '../db.js';
-export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; academyPay: number; proTickets: number };
+import { kstDate } from '../util.js';
+export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; academyPay: number; proTickets: number; dropIns: number };
+type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number };
+/**
+ * 그 달(KST)의 원데이 결제: 회원 연결 없이 결제만 있는 건. 상품에 묶인 수업의 강사 몫으로 센다(수업이 없는 상품은 어느 강사에게도 가지 않는다).
+ * 회원에게 연결돼 수강권이 생긴 원데이 결제는 출석으로 세므로 여기서 빼서 두 번 세지 않는다.
+ */
+function dropIns(db: Db, month: string): DropIn[] {
+  const [y, m] = month.split('-').map(Number);
+  const from = new Date(Date.UTC(y, m - 1, 1) - 9 * 3600000).toISOString();
+  const to = new Date(Date.UTC(y, m, 1) - 9 * 3600000).toISOString();
+  return db.prepare(`select c.instructor_id, pr.course_id, p.paid_at, p.amount from payments p
+    join products pr on pr.name=p.product_name left join courses c on c.id=pr.course_id
+    where p.drop_in=1 and p.status='APPROVED' and p.pass_id is null and p.paid_at >= ? and p.paid_at < ?`).all(from, to) as DropIn[];
+}
 export function settle(db: Db, month: string): SettlementLine[] {
   const ins = db.prepare('select id, name, settlement_type, ratio_instructor, per_session_fee from instructors').all() as any[];
   const att = db.prepare(`select a.instructor_id, a.course_id, a.attended_on, p.kind, p.price, p.total_count from attendances a join passes p on p.id=a.pass_id where a.cancelled_at is null and a.attended_on like ?`).all(month + '-%') as any[];
+  const drops = dropIns(db, month);
   return ins.map((i) => {
     const mine = att.filter((a) => a.instructor_id === i.id);
-    const sessions = new Set(mine.map((a) => a.course_id + '@' + a.attended_on)).size;
+    const myDrops = drops.filter((d) => d.instructor_id === i.id);
+    const sessions = new Set([...mine.map((a) => a.course_id + '@' + a.attended_on), ...myDrops.map((d) => d.course_id + '@' + kstDate(new Date(d.paid_at)))]).size;
     let revenue = 0, pro = 0;
     for (const a of mine) { if (a.kind === 'PERIOD') { pro++; continue; } revenue += a.total_count > 0 ? a.price / a.total_count : 0; }
+    for (const d of myDrops) revenue += d.amount;
     revenue = Math.round(revenue);
     const pay = i.settlement_type === 'RATIO' ? Math.round((revenue * i.ratio_instructor) / 100) : sessions * i.per_session_fee;
-    return { instructorId: i.id, name: i.name, type: i.settlement_type, ratioInstructor: i.ratio_instructor, perSessionFee: i.per_session_fee, sessions, heads: mine.length, revenue, instructorPay: pay, academyPay: revenue - (i.settlement_type === 'RATIO' ? pay : 0), proTickets: pro };
+    return { instructorId: i.id, name: i.name, type: i.settlement_type, ratioInstructor: i.ratio_instructor, perSessionFee: i.per_session_fee, sessions, heads: mine.length + myDrops.length, revenue, instructorPay: pay, academyPay: revenue - (i.settlement_type === 'RATIO' ? pay : 0), proTickets: pro, dropIns: myDrops.length };
   });
 }
 
@@ -25,6 +42,6 @@ export function settlementDetail(db: Db, month: string) {
   const payments = db.prepare(`select p.*, m.name member from payments p left join members m on m.id=p.member_id where p.paid_at >= ? and p.paid_at < ? order by p.paid_at`).all(from, to) as any[];
   return {
     attendances: attendances.map((a) => ({ attendedAt: a.attended_at, member: a.member ?? null, course: a.course ?? null, instructor: a.instructor ?? null, passKind: a.kind, value: a.kind === 'COUNT' && a.total_count > 0 ? Math.round(a.price / a.total_count) : 0 })),
-    payments: payments.map((p) => ({ paidAt: p.paid_at, member: p.member ?? null, payerName: p.payer_name ?? null, productName: p.product_name, amount: p.amount, status: p.status, source: p.source, externalId: p.external_id ?? null })),
+    payments: payments.map((p) => ({ paidAt: p.paid_at, member: p.member ?? null, payerName: p.payer_name ?? null, productName: p.product_name, amount: p.amount, status: p.status, source: p.source, externalId: p.external_id ?? null, dropIn: !!p.drop_in })),
   };
 }

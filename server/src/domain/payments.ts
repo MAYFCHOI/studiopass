@@ -3,7 +3,7 @@ import type { Db } from '../db.js';
 import { newId, nowIso, kstDate, addDays, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
 export type PaymentInput = { source: 'KIOSK' | 'MANUAL'; externalId?: string | null; paidAt: string; amount: number; payerName?: string | null; payerPhone?: string | null; productName: string; status?: 'APPROVED' | 'CANCELLED' };
-type ProductRow = { id: string; name: string; course_id: string | null; pass_kind: 'COUNT' | 'PERIOD'; count: number; period_days: number };
+type ProductRow = { id: string; name: string; course_id: string | null; pass_kind: 'COUNT' | 'PERIOD'; count: number; period_days: number; drop_in: number };
 type OnPass = (memberId: string, passId: string, staffId: string | null) => void;
 export class PassInUseError extends Error { constructor(public used: number) { super(`pass used ${used} times`); } }
 /** 연결할 수 없는 결제: 취소된 결제(PAYMENT_CANCELLED). 출석에 쓰인 수강권을 다른 회원으로 옮기려 하면 PassInUseError. */
@@ -13,7 +13,7 @@ export const REFUND_MATCH_DAYS = 30;
 
 const squash = (s: string) => (s ?? '').replace(/\s+/g, '');
 export function findProduct(db: Db, name: string) {
-  const all = db.prepare('select id,name,course_id,pass_kind,count,period_days from products where active=1').all() as ProductRow[];
+  const all = db.prepare('select id,name,course_id,pass_kind,count,period_days,drop_in from products where active=1').all() as ProductRow[];
   const n = squash(name);
   if (!n) return undefined;
   // 띄어쓰기만 다른 이름("정규 클래스  1회권" / "정규클래스 1회권")은 같은 상품으로 본다.
@@ -119,6 +119,8 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       added++;
       // A refund whose approval number appears only once in this file is matched after every approval row is in.
       if (r.status === 'CANCELLED') { if (!r.externalId || extIds.get(r.externalId) === 1) refunds.push({ id, phone, r }); continue; }
+      // 원데이 상품(회원 없이 결제만)은 결제에 표시해 둔다: 확인 필요에 회원 연결로 올리지 않고, 정산은 수업 강사 몫으로 센다.
+      if (findProduct(db, r.productName)?.drop_in) db.prepare('update payments set drop_in=1 where id=?').run(id);
       if (!phone) continue;
       const m = db.prepare('select id from members where phone=? and erased_at is null').all(phone) as { id: string }[];
       if (m.length === 1) { assignPayment(db, id, m[0].id, staffId, onPass); matched++; }
@@ -182,6 +184,12 @@ export function linkRefund(db: Db, refundId: string, originalId: string, staffId
     audit(db, staffId, 'payment.refund_link', 'payment', refundId, { originalId });
     return 'OK';
   })();
+}
+/** 원데이 손님 이름만 적는다(회원 등록 없이). 회원에게 연결된 결제는 회원 이름을 쓰므로 건드리지 않는다. */
+export function setPayerName(db: Db, paymentId: string, name: string, staffId: string | null) {
+  const n = db.prepare('update payments set payer_name=? where id=? and member_id is null').run(name.trim(), paymentId).changes;
+  if (n) audit(db, staffId, 'payment.payer_name', 'payment', paymentId);
+  return n > 0;
 }
 export function clearReview(db: Db, paymentId: string, staffId: string | null) {
   const n = db.prepare('update payments set review=null where id=? and review is not null').run(paymentId).changes;

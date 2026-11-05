@@ -45,6 +45,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const [assign, setAssign] = useState<Payment | null>(null);
   const [review, setReview] = useState<Payment | null>(null);
   const [payerErase, setPayerErase] = useState(false);
+  const [dropName, setDropName] = useState('');
   const [manual, setManual] = useState(false);
   const [q, setQ] = useState('');
   const file = useRef<HTMLInputElement>(null);
@@ -88,12 +89,19 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
 
   /** 회원은 연결됐는데 수강권이 없는 결제: 키오스크 상품명이 어떤 수강권 상품과도 맞지 않았다. */
   const noPass = (p: Payment) => p.status === 'APPROVED' && !!p.memberId && !p.passId;
-  const queue = s.payments.filter((p) => !!p.review || (p.status === 'APPROVED' && (!p.memberId || !p.passId))).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+  /** 원데이 결제: 회원 연결 없이 이름만 적으면 끝. 회원에게 연결했다면 보통 결제처럼 수강권이 있어야 한다. */
+  const dropOpen = (p: Payment) => !!p.dropIn && p.status === 'APPROVED' && (p.memberId ? !p.passId : !p.payerName);
+  const queue = s.payments.filter((p) => !!p.review || (p.status === 'APPROVED' && (p.dropIn ? dropOpen(p) : (!p.memberId || !p.passId)))).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const all = [...s.payments].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const name = (id?: string) => s.members.find((m) => m.id === id)?.name;
   const month = s.payments.filter((p) => p.status === 'APPROVED' && dayjs(p.paidAt).format('YYYY-MM') === dayjs().format('YYYY-MM')).reduce((n, p) => n + (p.amount ?? 0), 0);
   const openItem = (p: Payment) => (p.review ? setReview(p) : setAssign(p));
-  const closeAssign = () => { setAssign(null); setQ(''); setPayerErase(false); };
+  const closeAssign = () => { setAssign(null); setQ(''); setPayerErase(false); setDropName(''); };
+  const saveDropName = (p: Payment) => run(async () => {
+    const n = dropName.trim(); if (!n) return;
+    await s.setPayerName(p.id, n).catch(() => null);
+    toast(`${n} 님 원데이로 적었어요`); closeAssign();
+  });
   const pick = (p: Payment, memberId: string, who: string) => run(async () => {
     const r = await s.assignPayment(p.id, memberId).catch(() => null);
     if (!r) return;
@@ -126,14 +134,14 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         <button aria-pressed={tab === 'all'} onClick={() => setTab('all')}>전체</button>
       </div>
 
-      {tab === 'queue' && (queue.length === 0 ? <div className="empty"><b>확인할 결제가 없어요</b>모든 결제가 회원에게 연결됐어요</div> : (
+      {tab === 'queue' && (queue.length === 0 ? <div className="empty"><b>확인할 결제가 없어요</b>모든 결제가 회원에게 연결됐거나 원데이로 적혔어요</div> : (
         <div className="list">
           {queue.map((p) => {
             const same = samePhoneMembers(s.members, p.payerPhone);
             return (
               <button className="row" key={p.id} onClick={() => openItem(p)}>
-                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
-                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : '회원 연결'}</span></div>
+                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : p.dropIn ? '원데이 · 이름만 적으면 돼요 (회원이면 회원 선택)' : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
+                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : p.dropIn ? '이름 적기' : '회원 연결'}</span></div>
               </button>
             );
           })}
@@ -147,7 +155,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
               <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}
                 {p.review && <button className="chip amber" onClick={() => setReview(p)}>확인</button>}
                 {p.memberId && <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button>}
-                {p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>{!p.memberId ? '회원 연결' : noPass(p) ? '상품 미확인' : '변경'}</button>}
+                {p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>{!p.memberId ? (p.dropIn ? (p.payerName ? '원데이' : '이름 적기') : '회원 연결') : noPass(p) ? '상품 미확인' : '변경'}</button>}
               </div>
             </div>
           ))}
@@ -178,7 +186,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
       )}
 
       {assign && (
-        <Sheet onClose={closeAssign} title={assign.passId ? '다른 회원으로 바꾸기' : '누구의 결제인가요?'}>
+        <Sheet onClose={closeAssign} title={assign.passId ? '다른 회원으로 바꾸기' : assign.dropIn && !assign.memberId ? '원데이 손님' : '누구의 결제인가요?'}>
           <p className="sub">{assign.payerName || '이름 없음'} · {assign.productName}{maybeWon(assign.amount, ' · ')}{assign.payerPhone && ` · ${fmtPhone(assign.payerPhone)}`}</p>
           {assign.passId && assign.memberId && <div className="notice" role="note">지금 {name(assign.memberId) ?? '회원'}에게 연결돼 있어요. 다른 회원을 고르면 수강권도 그 회원에게 옮겨져요. 이 수강권으로 출석한 적이 있으면 바꿀 수 없어요.</div>}
           {noPass(assign) && (
@@ -187,8 +195,17 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
               <div style={{ marginTop: 8 }}><button className="btn sm primary" disabled={busy} onClick={() => { void pick(assign, assign.memberId!, name(assign.memberId) ?? '회원'); }}>다시 연결</button></div>
             </div>
           )}
+          {assign.dropIn && !assign.memberId && (
+            <div className="notice" role="note">
+              원데이 결제예요. 회원 등록이나 QR 없이 <b>이름만 적으면</b> 끝이에요. 회원이 결제한 거면 아래에서 회원을 골라 주세요(수강권이 생겨요).
+              <div className="btn-row" style={{ marginTop: 8 }}>
+                <input className="input" placeholder="손님 이름" value={dropName} onChange={(e) => setDropName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDropName(assign); }} />
+                <button className="btn primary" disabled={busy || !dropName.trim()} onClick={() => { void saveDropName(assign); }}>{busy ? '저장 중…' : '이름만 적기'}</button>
+              </div>
+            </div>
+          )}
           {samePhoneMembers(s.members, assign.payerPhone).length > 1 && <p className="sub">같은 번호 회원 {samePhoneMembers(s.members, assign.payerPhone).length}명: 자동으로 연결하지 않았어요. 맞는 회원을 골라 주세요.</p>}
-          <input className="input" autoFocus placeholder="회원 이름, 전화번호 뒷자리" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input" autoFocus={!(assign.dropIn && !assign.memberId)} placeholder="회원 이름, 전화번호 뒷자리" value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="list">
             {s.members.filter((m) => !m.erased && m.id !== (assign.passId ? assign.memberId : undefined)).filter((m) => !q.trim() ? (assign.payerName ? m.name.includes(assign.payerName) || (!!assign.payerPhone && m.phone.slice(-4) === assign.payerPhone.slice(-4)) : true) : matchMember(m, q)).slice(0, 8).map((m) => (
               <button className="row" key={m.id} disabled={busy} onClick={() => { void pick(assign, m.id, m.name); }}>
