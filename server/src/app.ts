@@ -10,6 +10,7 @@ import { bootstrapRoutes } from './routes/bootstrap.js';
 import { memberRoutes } from './routes/members.js';
 import { paymentRoutes } from './routes/payments.js';
 import { ownerRoutes } from './routes/owner.js';
+import { tossRoutes } from './toss/routes.js';
 export type { Deps } from './routes/common.js';
 
 export const BODY_LIMIT = 2 * 1024 * 1024;
@@ -26,6 +27,8 @@ export function createApp(deps: Deps) {
   app.route('/api', paymentRoutes(deps));
   app.route('/api', ownerRoutes(deps));
   app.all('/api/*', (c) => c.json({ error: 'NOT_FOUND' }, 404));
+  // 토스플레이스 웹훅: 세션·Origin 검사 밖, 서명으로만 받는다(server/src/toss/routes.ts).
+  if (deps.toss) app.route('/hooks', tossRoutes(deps.db, deps.toss.cfg, deps.toss.onReceived, deps.now ? () => deps.now!().getTime() : undefined));
 
   if (deps.staticDir) {
     const dir = deps.staticDir;

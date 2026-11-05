@@ -13,7 +13,7 @@ Lightsail 서울 인스턴스 1대(Ubuntu 24.04, 1GB) 위에서 Docker Compose �
 | 백업 버킷 | `studiopass-backup-<랜덤6>`, bundle `small_1_0` (5GB, 월 1달러). 이름은 맥의 `~/.studiopass/bucket-name` |
 | AWS 프로파일 | `personal-ops` 만. 스크립트가 `AWS_CONFIG_FILE=~/personal/.aws/config AWS_SHARED_CREDENTIALS_FILE=~/personal/.aws/credentials` 를 강제합니다 |
 | 서버 디렉터리 | `/srv/studiopass/app` (CURRENT_TAG 의 compose, Caddyfile, 스크립트, crontab, `.env`), `app.prev/` (PREV_TAG 의 같은 파일들), `data/` (SQLite, uid 1000), `src/<tag>/` (배포한 소스), `backups/`, `CURRENT_TAG`, `PREV_TAG` |
-| 비밀 | 서버 `/etc/studiopass/backup.env` (버킷 전용 키), `/etc/studiopass/alerts.env` (`NTFY_TOPIC=`), `/etc/studiopass/alimtalk.env` (알림톡 키, 비어 있으면 꺼짐, docs/ALIMTALK.md), 모두 600 |
+| 비밀 | 서버 `/etc/studiopass/backup.env` (버킷 전용 키), `/etc/studiopass/alerts.env` (`NTFY_TOPIC=`), `/etc/studiopass/alimtalk.env` (알림톡 키, 비어 있으면 꺼짐, docs/ALIMTALK.md), `/etc/studiopass/toss.env` (토스 Open API 키, 비어 있으면 꺼짐, docs/TOSS-OPENAPI.md), 모두 600 |
 | cron | `/etc/cron.d/studiopass`: 18:30 UTC(03:30 KST) 백업, 5분마다 헬스체크 |
 | 로그 | `/var/log/studiopass-backup.log`, `docker compose logs api` (컨테이너 로그는 10MB x 3 로 순환) |
 
