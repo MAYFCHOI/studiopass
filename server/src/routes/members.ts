@@ -111,6 +111,34 @@ export function memberRoutes(d: Deps) {
     return c.json({ url: `${origin}/m/${token}` });
   });
 
+  /** 유효기간 연장: 수강권당 1번, 1~90일. 데스크도 한다. 원장은 잘못 넣은 연장을 되돌릴 수 있다(그 뒤 다시 1번 가능). */
+  const passOut = (c: any, id: string) => toPass(db.prepare('select * from passes where id=?').get(id), c.get('me').role);
+  r.post('/passes/:id/extend', async (c) => {
+    const id = c.req.param('id'); const b = await body(c);
+    const days = b?.days;
+    if (!Number.isInteger(days) || days < 1 || days > 90) return bad(c);
+    const p = db.prepare('select p.*, m.erased_at from passes p join members m on m.id=p.member_id where p.id=?').get(id) as any;
+    if (!p) return notFound(c);
+    if (p.erased_at) return erased(c);
+    if (p.extended_at) return c.json({ error: 'ALREADY_EXTENDED' }, 409);
+    const to = new Date(p.valid_to + 'T00:00:00Z'); to.setUTCDate(to.getUTCDate() + days);
+    const validTo = to.toISOString().slice(0, 10);
+    db.prepare('update passes set valid_to=?, extended_days=?, extended_at=?, extended_by=? where id=?').run(validTo, days, nowIso(), c.get('me').staffId, id);
+    audit(db, c.get('me').staffId, 'pass.extend', 'pass', id, { days, from: p.valid_to, to: validTo });
+    return c.json(passOut(c, id));
+  });
+  r.post('/passes/:id/extend/undo', ownerOnly, (c) => {
+    const id = c.req.param('id');
+    const p = db.prepare('select * from passes where id=?').get(id) as any;
+    if (!p) return notFound(c);
+    if (!p.extended_at) return c.json({ error: 'NOT_EXTENDED' }, 409);
+    const to = new Date(p.valid_to + 'T00:00:00Z'); to.setUTCDate(to.getUTCDate() - p.extended_days);
+    const validTo = to.toISOString().slice(0, 10);
+    db.prepare('update passes set valid_to=?, extended_days=null, extended_at=null, extended_by=null where id=?').run(validTo, id);
+    audit(db, c.get('me').staffId, 'pass.extend.undo', 'pass', id, { from: p.valid_to, to: validTo });
+    return c.json(passOut(c, id));
+  });
+
   // channel 없음/SMS_LINK: 화면이 문자 앱을 연 기록만 남긴다. ALIMTALK: 서버가 새 링크를 발급해 바로 보낸다.
   r.post('/members/:id/messages', async (c) => {
     const id = c.req.param('id');

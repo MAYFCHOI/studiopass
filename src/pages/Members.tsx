@@ -39,6 +39,8 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [formKey, setFormKey] = useState(newRequestKey); // 새 회원 폼마다 하나(두 번 눌러도 회원은 한 명)
   const [history, setHistory] = useState<{ id: string; h: MemberHistory | null } | null>(null);
   const [showAllFor, setShowAllFor] = useState<string | null>(null); // 출석 기록 전부 보기(회원별)
+  const [ext, setExt] = useState<{ passId: string; days: number } | null>(null); // 유효기간 연장 중인 수강권
+  const [extBusy, setExtBusy] = useState(false);
   const memberHistory = s.memberHistory;
   useEffect(() => {
     if (!memberId) return;
@@ -129,10 +131,39 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           <div className="list">
             {passes.map((p) => {
               const expired = p.validTo < t; const done = p.remaining <= 0;
+              const open = ext?.passId === p.id;
+              const extend = async () => {
+                if (!ext || extBusy) return;
+                setExtBusy(true);
+                try {
+                  const r = await s.extendPass(p.id, ext.days);
+                  if (r.ok) { toast(`유효기간을 ${ext.days}일 늘렸어요 (${dayjs(p.validTo).add(ext.days, 'day').format('M/D')}까지)`); setExt(null); }
+                  else toast(r.error === 'ALREADY_EXTENDED' ? '이 수강권은 이미 한 번 연장했어요' : '연장하지 못했어요. 다시 시도해 주세요');
+                } catch { /* 안내는 스토어가 띄운다 */ } finally { setExtBusy(false); }
+              };
               return (
-                <div className="row" key={p.id}>
-                  <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
-                  <div className="right inline"><b className="num">{p.remaining}</b> / {p.totalCount}</div>
+                <div className="pass-item" key={p.id}>
+                  <div className="row">
+                    <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{p.extendedDays ? ` · ${p.extendedDays}일 연장함` : ''}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
+                    <div className="right inline"><b className="num">{p.remaining}</b> / {p.totalCount}</div>
+                  </div>
+                  {!m.erased && !done && !open && (
+                    <div className="pass-actions">
+                      {!p.extendedDays && <button className="btn sm ghost" onClick={() => setExt({ passId: p.id, days: 7 })}>기간 연장</button>}
+                      {!!p.extendedDays && owner && <button className="btn sm ghost" onClick={() => { void s.undoExtendPass(p.id).then(() => toast('연장을 되돌렸어요'), () => {}); }}>연장 되돌리기</button>}
+                    </div>
+                  )}
+                  {open && (
+                    <div className="pass-extend">
+                      <div className="seg">{[7, 14, 30].map((n) => <button key={n} aria-pressed={ext.days === n} onClick={() => setExt({ passId: p.id, days: n })}>{n}일</button>)}</div>
+                      <label className="sub">직접 입력(일) <input className="input" inputMode="numeric" value={ext.days} onChange={(e) => setExt({ passId: p.id, days: Math.min(90, Number(e.target.value.replace(/\D/g, '')) || 0) })} style={{ width: 80, display: 'inline-block', marginLeft: 6 }} /></label>
+                      <p className="sub" style={{ margin: 0 }}>{dayjs(p.validTo).format('M/D')} → <b>{dayjs(p.validTo).add(ext.days, 'day').format('M/D')}</b>까지. 수강권마다 한 번만 연장할 수 있어요.</p>
+                      <div className="pass-actions">
+                        <button className="btn sm" onClick={() => setExt(null)}>닫기</button>
+                        <button className="btn sm primary" disabled={extBusy || ext.days < 1} onClick={() => { void extend(); }}>{ext.days}일 연장</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

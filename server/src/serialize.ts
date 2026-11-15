@@ -23,7 +23,7 @@ export const toProduct = (r: any, role: Role) => ({
   ...(owner(role) ? { price: r.price } : {}),
 });
 export const toPass = (r: any, role: Role) => ({
-  id: r.id, memberId: r.member_id, productId: r.product_id, courseId: opt(r.course_id), kind: r.kind, totalCount: r.total_count, remaining: r.remaining, validFrom: r.valid_from, validTo: r.valid_to, paymentId: opt(r.payment_id),
+  id: r.id, memberId: r.member_id, productId: r.product_id, courseId: opt(r.course_id), kind: r.kind, totalCount: r.total_count, remaining: r.remaining, validFrom: r.valid_from, validTo: r.valid_to, paymentId: opt(r.payment_id), extendedDays: opt(r.extended_days), extendedAt: opt(r.extended_at),
   ...(owner(role) ? { price: r.price } : {}),
 });
 export const toPayment = (r: any, role: Role) => ({

@@ -226,6 +226,16 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             return { ok: true };
           },
           clearReview: async (paymentId) => { patchPayment(paymentId, { review: undefined }); },
+          extendPass: async (passId, days) => {
+            const p = get().passes.find((x) => x.id === passId);
+            if (!p) return { ok: false, error: 'NOT_FOUND' };
+            if (p.extendedAt) return { ok: false, error: 'ALREADY_EXTENDED' };
+            set({ passes: get().passes.map((x) => (x.id === passId ? { ...x, validTo: dayjs(x.validTo).add(days, 'day').format('YYYY-MM-DD'), extendedDays: days, extendedAt: new Date().toISOString() } : x)) });
+            return { ok: true };
+          },
+          undoExtendPass: async (passId) => {
+            set({ passes: get().passes.map((x) => (x.id === passId && x.extendedDays ? { ...x, validTo: dayjs(x.validTo).subtract(x.extendedDays, 'day').format('YYYY-MM-DD'), extendedDays: undefined, extendedAt: undefined } : x)) });
+          },
           memberHistory: async (memberId) => {
             const s = get();
             return { attendances: s.attendances.filter((a) => a.memberId === memberId), payments: s.payments.filter((p) => p.memberId === memberId), passes: s.passes.filter((p) => p.memberId === memberId) };

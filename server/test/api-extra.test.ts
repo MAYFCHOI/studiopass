@@ -323,3 +323,27 @@ describe('drop-in (원데이) products added after payments came in, and cash dr
     expect((await req('/payments', { method: 'POST', body: { amount: 30000, productName: '정규 클래스 1회권', method: 'BITCOIN' } }, o)).status).toBe(400);
   });
 });
+
+describe('pass extension', () => {
+  it('desk extends a pass once, the owner can undo, erased members are refused', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('x1', '01011112222')] } }, o);
+    const m = await (await req('/members', { method: 'POST', body: { name: '연장', phone: '01011112222' } }, d)).json();
+    const pass = (await (await req('/bootstrap', {}, o)).json()).passes.find((p: any) => p.memberId === m.id);
+    expect((await req(`/passes/${pass.id}/extend`, { method: 'POST', body: { days: 0 } }, d)).status).toBe(400);
+    expect((await req(`/passes/${pass.id}/extend`, { method: 'POST', body: { days: 91 } }, d)).status).toBe(400);
+    const to = new Date(pass.validTo + 'T00:00:00Z'); to.setUTCDate(to.getUTCDate() + 7);
+    const ext = await (await req(`/passes/${pass.id}/extend`, { method: 'POST', body: { days: 7 } }, d)).json();
+    expect(ext).toMatchObject({ validTo: to.toISOString().slice(0, 10), extendedDays: 7 });
+    expect(ext.price).toBeUndefined();
+    const again = await req(`/passes/${pass.id}/extend`, { method: 'POST', body: { days: 7 } }, d);
+    expect(again.status).toBe(409); expect(await again.json()).toEqual({ error: 'ALREADY_EXTENDED' });
+    expect(db.prepare("select count(*) n from audit_log where action='pass.extend' and entity_id=?").get(pass.id)).toEqual({ n: 1 });
+    expect((await req(`/passes/${pass.id}/extend/undo`, { method: 'POST' }, d)).status).toBe(403);
+    const back = await (await req(`/passes/${pass.id}/extend/undo`, { method: 'POST' }, o)).json();
+    expect(back.validTo).toBe(pass.validTo); expect(back.extendedDays).toBeUndefined();
+    await req(`/members/${m.id}/erase`, { method: 'POST' }, o);
+    expect((await req(`/passes/${pass.id}/extend`, { method: 'POST', body: { days: 7 } }, d)).status).toBe(409);
+    expect((await req('/passes/nope/extend', { method: 'POST', body: { days: 7 } }, d)).status).toBe(404);
+  });
+});

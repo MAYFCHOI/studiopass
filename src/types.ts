@@ -95,6 +95,8 @@ export interface Pass {
   validTo: string; // YYYY-MM-DD
   paymentId?: string;
   price?: number; // DESK 에게는 없음
+  extendedDays?: number; // 유효기간 연장(수강권당 1번). validTo 는 이미 늘어난 날
+  extendedAt?: string;
 }
 
 export interface Attendance {
@@ -206,6 +208,10 @@ export interface Actions {
   linkRefund(refundId: string, originalId: string): Promise<{ ok: true } | { ok: false; error: string; used: number }>;
   /** 확인 필요 표시를 지운다(사람이 확인함) */
   clearReview(paymentId: string): Promise<void>;
+  /** 유효기간 연장(수강권당 1번, 1~90일). 이미 연장했으면 ALREADY_EXTENDED */
+  extendPass(passId: string, days: number): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** 원장만: 연장 되돌리기(끝나는 날 원래대로, 다시 1번 가능) */
+  undoExtendPass(passId: string): Promise<void>;
   /** 회원 상세용 전체 기록(서버: bootstrap 의 62일 창 밖까지) */
   memberHistory(memberId: string): Promise<MemberHistory>;
   cancelPayment(paymentId: string): Promise<{ ok: true } | { ok: false; used: number }>;
