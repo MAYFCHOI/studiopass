@@ -80,6 +80,18 @@ footer .wrap { padding-block: 26px 48px; display: flex; justify-content: space-b
 footer .mark { font-family: var(--display); font-stretch: 125%; font-weight: 800; letter-spacing: .2em; font-size: 11px; }
 
 :focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.shot { margin: 14px 0 22px; }
+.shot img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--rule); }
+.shot figcaption { margin-top: 8px; font-size: 13.5px; color: var(--mute); }
+.shot.phone { max-width: 300px; }
+.shot.sheetfig { max-width: 420px; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.pair .shot { min-width: 0; }
+.quick { border: 1px solid var(--orange); border-radius: 12px; padding: 18px 20px 6px; margin: 8px 0 18px; }
+.quick h3 { margin-top: 0; }
+.quick ol { margin: 0 0 12px; padding-left: 20px; color: var(--fg-2); }
+.quick li { margin-bottom: 6px; }
+.quick a { color: var(--orange); }
 @media (max-width: 640px) { .bar nav { display: none; } .cover .wrap { padding-block: 64px 48px; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 html { scroll-behavior: smooth; scroll-padding-top: 72px; }
@@ -98,7 +110,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
   <div class="wrap">
     <p class="kicker">Studio guide</p>
     <h1>How to<br>run the desk</h1>
-    <p>토스 POS 결제가 자동으로 들어오고, 회원 QR 로 출석을 받고, 월말에 강사 정산을 뽑는 앱입니다. 처음 한 번 할 일, 매일 하는 일, 월말에 하는 일 순서로 적었습니다.</p>
+    <p>토스 POS 결제가 자동으로 들어오고, 회원 QR 로 출석을 받고, 월말에 강사 정산을 뽑는 앱입니다. 선생님과 데스크 스텝 모두 이 페이지 하나로 보시면 됩니다. 사진은 실제 앱 화면이고, 회원 이름은 예시입니다.</p>
     <div class="addr"><span id="site">thedepthdance.com</span><button type="button" id="copy">주소 복사</button></div>
   </div>
 </section>
@@ -106,11 +118,21 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 <main>
   <div class="part" id="start"><div class="wrap"><span class="when">Start</span><h2>시작하기</h2></div></div>
   <section class="topic"><div class="wrap">
+    <div class="quick">
+      <h3>데스크 스텝분은 이 세 가지만 아시면 됩니다</h3>
+      <ol>
+        <li>회원이 오면 <a href="#attend">출석 받기</a>: QR 을 카메라에 비추거나 이름으로 찾습니다.</li>
+        <li>토스로 결제하면 <a href="#pay">결제 확인</a>: 월 수강권은 회원 고르기, 원데이는 이름만 적기.</li>
+        <li>현금이나 계좌이체로 받으면 <a href="#cash">현금·이체 결제 넣기</a>.</li>
+      </ol>
+      <p>처음 온 월 수강권 회원은 <a href="#member">새 회원 등록</a> 뒤 링크 문자를 보냅니다. 막히면 <a href="#trouble">문제가 생기면</a>을 봅니다.</p>
+    </div>
     <h3>계정은 두 종류입니다</h3>
     <div class="roles">
       <div class="role"><h4>원장 계정</h4><p>모든 화면을 씁니다. 정산, 설정(상품 · 가격 · 강사 조건 · 시간표), 회원 정보 삭제는 원장 계정에서만 보입니다.</p></div>
       <div class="role"><h4>인포 계정</h4><p>데스크에서 같이 쓰는 계정입니다. 오늘, 출석, 회원, 결제만 보입니다. 금액은 서버가 아예 보내지 않아서 어디에도 나오지 않습니다.</p></div>
     </div>
+    <figure class="shot"><img src="img/01-login.jpg" alt="로그인 화면: 아이디, 비밀번호 칸과 로그인 버튼" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>인포 계정으로 로그인한 화면. 로그인은 30일 동안 유지됩니다.</figcaption></figure>
     <p>아이디와 비밀번호는 따로 전달드립니다. 비밀번호를 바꾸거나 잊으셨으면 관리자(정민)에게 말씀해 주세요. 바로 새로 만들어 드립니다.</p>
     <h3>데스크 기기에 바로가기 만들기</h3>
     <ol class="steps">
@@ -137,7 +159,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
     <h3>1. 수강권 상품은 토스 POS 와 똑같이</h3>
     <p>토스 POS 결제의 상품명이 앱 설정의 상품명과 <b>글자 하나까지</b> 같아야 어떤 수강권인지 알아봅니다. 가격이 같은 상품이 많아서(130,000원 9개, 35,000원 10개) 이름으로만 구분합니다.</p>
     <ol class="steps">
-      <li><div>토스 POS 에서 상품 이름을 바꾸거나 새로 만들면, 앱 오른쪽 위 톱니바퀴(<span class="tab">설정</span>) &gt; <b>수강권 상품</b>에서도 똑같이 바꿔 줍니다. 띄어쓰기는 달라도 되고 괄호와 대소문자는 같아야 합니다.</div></li>
+      <li><div>토스 POS 에서 상품 이름을 바꾸거나 새로 만들면, 앱 오른쪽 위 톱니바퀴(<span class="tab">설정</span>) &gt; <b>수강권 상품</b>에서도 똑같이 바꿔 줍니다. 띄어쓰기와 대소문자는 달라도 되고, 괄호와 글자는 같아야 합니다.</div></li>
       <li><div>더 이상 팔지 않는 상품은 지우지 말고 <b>쉬는 중</b>으로 바꿉니다. 지난 기록은 그대로 남습니다.</div></li>
       <li><div>월 수강권은 <b>그 선생님 수업만</b>, 결제일부터 30일 동안 4회로 넣어 두었습니다. 횟수나 기간이 다르면 상품을 눌러 고쳐 주세요.</div></li>
     </ol>
@@ -150,6 +172,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
       </tbody>
     </table></div>
 
+    <figure class="shot sheetfig"><img src="img/16-product-dropin.jpg" alt="상품 수정 창: 상품명, 회차권, 수업, 회차, 유효 기간, 가격, 원데이 선택" width="780" height="1083" loading="lazy" decoding="async"><figcaption>설정 &gt; 상품을 누르면 열리는 창. 원데이 상품은 아래쪽에서 <b>원데이</b>를 고릅니다.</figcaption></figure>
     <h3>2. 강사 정산 조건</h3>
     <p><b>강사와 정산 기준</b>에서 강사를 누르고 정산 방식을 고릅니다. 지금은 모두 예시값(50:50)입니다.</p>
     <div class="tbl"><table>
@@ -162,6 +185,8 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 
     <h3>3. 시간표 확인</h3>
     <p>포스터 기준으로 시간표가 들어가 있습니다. <b>수업 시간표</b>의 칸을 누르면 장르, 강사, 홀, 레벨, 요일, 시간을 고칠 수 있습니다. 한동안 쉬는 수업은 <b>쉬는 중</b>으로 두면 출석 화면에서 빠집니다.</p>
+    <figure class="shot"><img src="img/15-settings.jpg" alt="설정 화면의 HUB 홀 시간표: 요일별 수업 칸" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>설정 &gt; 수업 시간표. 칸을 누르면 그 수업을 고칩니다. HUB 와 LAB 은 오른쪽 위에서 바꿉니다.</figcaption></figure>
+    <p>새로 추가한 수업이 시간표에서 안 보이면 시간표 아래 <span class="btn">수업 전체 목록</span> 을 누릅니다. 모든 수업이 요일과 시간 순으로 나오고, 눌러서 고칠 수 있습니다. 같은 요일 비슷한 시간에 수업이 두 개면 시간표 한 칸에 위아래로 같이 보입니다.</p>
     <h3>4. 토스 POS 는 결제만</h3>
     <p>토스 POS 에도 회원·횟수권 기능이 있지만 쓰지 않습니다. 남은 횟수와 기간은 앱에서만 관리합니다. 토스 POS 는 결제와 취소만 합니다.</p>
     <h3>5. 공식 로고 파일 보내주기 (완료)</h3>
@@ -170,13 +195,20 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 
   <div class="part" id="attend"><div class="wrap"><span class="when">Daily</span><h2>출석 받기</h2></div></div>
   <section class="topic"><div class="wrap">
+    <figure class="shot"><img src="img/02-today.jpg" alt="오늘 화면: 오늘 출석 수, 확인할 결제 알림, 오늘 수업, 출석한 회원" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>앱을 열면 나오는 <b>오늘</b> 화면. 검은 띠에 확인할 결제가 있으면 눌러서 처리합니다. <span class="btn">QR 출석 체크</span> 로 바로 출석 화면에 갑니다.</figcaption></figure>
     <ol class="steps">
       <li><div>아래 메뉴 <span class="tab">출석</span> 을 누릅니다. 지금 시각에 가장 가까운 수업이 자동으로 골라져 있습니다. 다른 수업이면 위쪽 수업 칸을 누릅니다.</div></li>
       <li><div>회원이 폰에 띄운 QR 을 카메라 네모 안에 맞춥니다.</div></li>
       <li><div>화면이 크게 바뀌면서 결과가 나옵니다. <b>출석 완료</b>면 이름, 남은 횟수, 기간이 보입니다.</div></li>
       <li><div><span class="btn">다음 사람</span> 을 누르고 다음 회원 QR 을 찍습니다.</div></li>
     </ol>
-    <div class="tip"><b>QR 이 없을 때</b> 출석 화면 아래 <b>이름으로 출석</b>에 이름, 전화번호 뒷자리, 회원번호 중 하나를 넣고 회원을 누르면 됩니다.</div>
+    <figure class="shot"><img src="img/03-scan.jpg" alt="출석 화면: 위에 오늘 수업 칸, 아래 카메라 화면" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>출석 화면. 위쪽 검은 칸이 지금 고른 수업입니다. 다른 수업이면 <b>전체 수업 보기</b>.</figcaption></figure>
+    <div class="tip"><b>QR 이 없을 때</b> 출석 화면 아래 <b>이름으로 출석</b>에 이름, 전화번호 뒷자리, 회원번호 중 하나를 넣고 회원 줄의 <b>출석</b>을 누르면 됩니다.</div>
+    <figure class="shot"><img src="img/04-scan-search.jpg" alt="이름으로 출석: 검색칸에 유나를 넣자 정유나 회원이 나온 화면" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>카메라 아래 <b>이름으로 출석</b>. 이름 일부만 넣어도 찾습니다.</figcaption></figure>
+    <div class="pair">
+      <figure class="shot"><img src="img/05-scan-ok.jpg" alt="출석 완료 화면: 회원 이름, 남은 횟수 3/4, 기간" width="1770" height="1230" loading="lazy" decoding="async"><figcaption><b>출석 완료</b>. 남은 횟수와 기간을 회원에게 말해 주면 좋습니다.</figcaption></figure>
+      <figure class="shot"><img src="img/06-scan-fail.jpg" alt="출석 안 됨 화면: 이 수업에 쓸 수강권이 없어요" width="1770" height="1230" loading="lazy" decoding="async"><figcaption><b>출석 안 됨</b>. 빨간 글씨가 이유입니다. 아래 표를 보세요.</figcaption></figure>
+    </div>
     <h3>"출석 안 됨"이 뜨면</h3>
     <div class="tbl"><table>
       <thead><tr><th>화면 문구</th><th>이렇게 하세요</th></tr></thead>
@@ -200,8 +232,11 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
       <li><div><span class="btn">등록하고 QR 만들기</span> 를 누르면 회원 화면이 열립니다.</div></li>
       <li><div><span class="btn">링크 문자 보내기</span> 를 누르면 메시지 앱이 열리고 본문에 회원 페이지 링크가 채워져 있습니다. 그대로 보냅니다. 데스크 맥에서는 맥의 메시지 앱이 열리고, 학원 아이폰 번호로 문자가 나갑니다(아래 "데스크 맥에서 문자 보내기" 설정 필요). 본문이 비어 있으면 <b>⌘V</b> 로 붙여 넣으면 됩니다.</div></li>
     </ol>
+    <figure class="shot sheetfig"><img src="img/08-member-new.jpg" alt="새 회원 등록 창: 이름, 휴대폰 번호, 메모, 등록하고 QR 만들기 버튼" width="780" height="615" loading="lazy" decoding="async"><figcaption>새 회원 등록 창. 이름과 휴대폰 번호만 넣으면 됩니다.</figcaption></figure>
+    <figure class="shot"><img src="img/09-member-card.jpg" alt="회원 화면: 회원 카드, 링크 문자 보내기와 정보 수정 버튼, 수강권과 출석 기록" width="1770" height="1230" loading="lazy" decoding="async"><figcaption>등록하면 열리는 회원 화면. <span class="btn">링크 문자 보내기</span> 로 회원 페이지 링크를 보냅니다. 아래에 수강권, 출석 기록, 결제가 보입니다.</figcaption></figure>
     <div class="tip"><b>앞으로</b> 사업자등록증으로 카카오톡 채널을 만들고 알림톡 문구 승인을 받으면 카카오 알림톡으로 바꿀 수 있습니다. 바꾸면 버튼이 <b>알림톡으로 링크 보내기</b>로 바뀌고, 학원 아이폰 없이 서버가 바로 보냅니다. 결제가 들어오면 처음 등록한 회원에게는 자동으로도 갑니다.</div>
     <p>회원은 그 링크를 열어 <b>홈 화면에 추가</b>해 두고, 출석할 때 그 화면의 QR 을 보여주면 됩니다. 회원 페이지에는 남은 횟수와 기간, 출석 횟수에 따른 등급이 보이고 금액은 보이지 않습니다.</p>
+    <figure class="shot phone"><img src="img/17-member-page.jpg" alt="회원 휴대폰에 보이는 회원 페이지: 이름 일부 가림, 큰 QR, 남은 횟수 3" width="780" height="1560" loading="lazy" decoding="async"><figcaption>회원 휴대폰에 보이는 화면. 출석할 때 이 QR 을 데스크 카메라에 보여 줍니다.</figcaption></figure>
     <div class="warn">메모에는 건강, 종교 같은 민감한 정보를 적지 마세요. 토스 결제에는 결제한 사람의 이름이나 번호가 들어오지 않아서, 결제와 회원은 데스크에서 직접 연결합니다(아래 결제 넣기).</div>
   </div></section>
 
@@ -209,12 +244,17 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
   <section class="topic"><div class="wrap">
     <h3>토스 POS 결제는 자동으로 들어옵니다</h3>
     <p>토스 POS 나 키오스크 모드에서 결제하면 1분 안에 <span class="tab">결제</span> &gt; <b>확인 필요</b>에 상품명, 금액, 시각이 뜹니다. 올릴 파일도, 누를 버튼도 없습니다. 결제한 사람이 누구인지는 토스가 알려주지 않으므로 그 자리에서 한 번만 눌러 줍니다.</p>
+    <figure class="shot"><img src="img/10-payments.jpg" alt="결제 화면의 확인 필요 목록: 원데이 두 건은 이름 적기, 월 수강권 한 건은 회원 연결" width="1770" height="1230" loading="lazy" decoding="async"><figcaption><span class="tab">결제</span> &gt; <b>확인 필요</b>. 오른쪽 검은 표시가 할 일입니다. 인포 계정에는 금액이 안 보입니다.</figcaption></figure>
     <ol class="steps">
       <li><div><b>월 수강권</b>을 결제한 분이 앞에 있을 때 바로 <span class="tab">결제</span> &gt; 확인 필요에서 그 결제를 누르고 회원을 고릅니다. 수강권이 생기고, 처음 온 분이면 <b>새 회원으로 등록</b> 뒤 링크를 보냅니다.</div></li>
       <li><div><b>원데이</b>((1 TICKET), WARM UP TRAINING)는 결제를 누르고 손님 <b>이름만 적기</b>를 누르면 끝입니다. 회원 등록, QR, 출석 없이 바로 수업에 들어갑니다. 회원이 원데이를 결제했다면 회원을 골라도 됩니다.</div></li>
       <li><div>토스 POS 에 <b>원데이 상품을 새로 만들면</b> 앱 <span class="tab">설정</span> &gt; 상품에도 <b>똑같은 이름</b>으로 만들고 원데이를 고릅니다. 앱 상품보다 결제가 먼저 들어왔어도, 상품을 저장하는 순간 그 결제들이 원데이로 바뀝니다.</div></li>
       <li><div>결제를 취소할 때는 <b>토스 POS 에서</b> 취소합니다. 앱의 결제와 수강권도 따라서 취소됩니다.</div></li>
     </ol>
+    <div class="pair">
+      <figure class="shot sheetfig"><img src="img/12-link-member.jpg" alt="누구의 결제인가요 창: 검색칸에 민준을 넣자 최민준 회원이 나옴" width="780" height="468" loading="lazy" decoding="async"><figcaption><b>회원 연결</b>: 이름이나 번호 뒷자리로 찾아 회원을 누르면 끝.</figcaption></figure>
+      <figure class="shot sheetfig"><img src="img/11-dropin-name.jpg" alt="원데이 손님 창: 손님 이름 칸과 이름만 적기 버튼" width="780" height="1083" loading="lazy" decoding="async"><figcaption><b>이름 적기</b>: 손님 이름을 넣고 <b>이름만 적기</b>.</figcaption></figure>
+    </div>
     <div class="tip"><b>결제 직후에 연결하는 이유</b> 토스 결제에는 이름도 번호도 없어서, 하루 지나면 어느 결제가 누구 것인지 알 수 없습니다. 결제한 분이 데스크 앞에 있을 때 바로 누르는 습관이 제일 쉽습니다.</div>
     <h3>확인 필요 탭의 표시</h3>
     <div class="tbl"><table>
@@ -226,8 +266,16 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
         <tr><td>환불 확인 · 원 결제 고르기</td><td>엑셀로 올린 환불에서만 나옵니다. 앱이 보여주는 원래 결제가 맞으면 <b>이 결제 환불 처리</b>, 아니면 목록에서 고릅니다. 되돌릴 수 없으니 이름과 날짜를 꼭 확인하세요.</td></tr>
       </tbody>
     </table></div>
-    <h3>현금 · 계좌이체 · 전문반</h3>
+    <h3 id="cash">현금 · 계좌이체 · 전문반</h3>
     <p><span class="tab">결제</span> &gt; <span class="btn">현금·이체 결제 넣기</span> 에서 받은 방법(현금, 계좌이체, 기타), 상품, 금액을 고르고 회원을 이름이나 전화번호 뒷자리로 찾아 고른 뒤 <span class="btn">등록</span> 하면 수강권이 바로 생깁니다. 원데이 상품을 고르면 회원 대신 <b>손님 이름</b>만 적으면 됩니다. 지난 날짜에 받은 돈은 <b>받은 날</b>을 바꿔서 넣습니다. 전문반 월정액은 토스 POS 에 없으므로 여기서 넣습니다.</p>
+    <figure class="shot sheetfig"><img src="img/13-cash.jpg" alt="현금·이체 결제 넣기 창: 받은 방법 계좌이체, 상품 HILLY, 금액, 회원 박서연, 받은 날" width="780" height="864" loading="lazy" decoding="async"><figcaption>받은 방법 → 상품 → 금액 → 회원 → 받은 날 순서로 채우고 맨 아래 버튼을 누릅니다. 버튼에 이름과 금액이 나오니 한 번 더 확인하세요.</figcaption></figure>
+    <ol class="steps">
+      <li><div><b>받은 방법</b>을 고릅니다. 현금, 계좌이체, 기타.</div></li>
+      <li><div><b>상품</b>을 고르면 가격이 금액 칸에 채워집니다(인포 계정은 금액을 직접 넣습니다).</div></li>
+      <li><div><b>회원</b> 칸에 이름이나 번호 뒷자리를 넣고 회원을 누릅니다. 원데이 상품이면 회원 대신 <b>손님 이름</b>만 적어도 됩니다.</div></li>
+      <li><div>오늘 받은 돈이 아니면 <b>받은 날</b>을 바꿉니다.</div></li>
+      <li><div>맨 아래 <span class="btn">이름 · 금액 등록</span> 을 누릅니다. 결제 목록에 <b>현금</b> 또는 <b>계좌이체</b>로 표시됩니다.</div></li>
+    </ol>
     <h3>엑셀 올리기는 비상용</h3>
     <p>토스 연동이 멈춘 날에만 씁니다. 토스 POS 관리 화면에서 결제 내역을 엑셀로 내려받아 <span class="btn">엑셀</span> 로 올리면 같은 결제는 중복으로 빠지고 빠진 것만 들어옵니다. 잘못 올렸으면 결과 창의 <b>이 업로드 되돌리기</b>(원장 계정).</p>
   </div></section>
@@ -254,6 +302,7 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
       <li><div>맨 위 큰 숫자가 그 달 <b>강사에게 줄 돈</b> 합계입니다. 아래 표에 강사별 수업 횟수, 출석 인원, 매출, 학원 몫, 강사 지급액이 나옵니다.</div></li>
       <li><div><span class="btn">엑셀로 받기</span> 를 누르면 강사별 정산, 출석 상세, 결제 세 장짜리 파일이 저장됩니다.</div></li>
     </ol>
+    <figure class="shot"><img src="img/14-settle.jpg" alt="정산 화면: 강사에게 줄 돈 합계, 강사별 수업, 출석, 매출, 학원 몫, 강사 지급" width="1770" height="1230" loading="lazy" decoding="async"><figcaption><span class="tab">정산</span> 화면(원장 계정). 예시 숫자입니다.</figcaption></figure>
     <p>전문반 월정액 출석은 금액으로 바꾸지 않고 강사별 횟수만 따로 표시합니다. 정산 전에 결제 화면의 확인 필요가 비어 있는지 먼저 보면 숫자가 정확합니다.</p>
   </div></section>
 
