@@ -73,6 +73,7 @@ export interface Payment {
   memberId?: string; // assigned member
   dropIn?: boolean; // 적재 당시 원데이 상품이었던 결제
   method?: PayMethod;
+  courseId?: string; // 원데이 결제의 수업(상품에 수업이 없을 때 사람이 고름). 정산은 이 수업 강사 몫
   passId?: string; // pass created
   /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행,
    *  REFUND_SUGGESTED: 원 결제 후보가 하나(refundSuggestedOf). 승인번호가 다른 환불은 사람이 확정할 때만 원 결제를 취소한다 */
@@ -174,7 +175,7 @@ export interface SettlementDetail {
 }
 
 /** 직접 입력. memberId 가 없으면 원데이 손님(이름만). */
-export interface NewPayment { memberId?: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string; method?: PayMethod }
+export interface NewPayment { memberId?: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string; method?: PayMethod; courseId?: string }
 
 export interface Actions {
   load(): Promise<void>;
@@ -189,6 +190,8 @@ export interface Actions {
   erasePayer(paymentId: string): Promise<void>;
   /** 원데이 손님 이름만 적기(회원 등록 없이) */
   setPayerName(paymentId: string, name: string): Promise<void>;
+  /** 원데이 결제의 수업 고르기(null 이면 지움) */
+  setPaymentCourse(paymentId: string, courseId: string | null): Promise<void>;
   /** 회원 페이지 링크 발급(재발급하면 예전 링크는 막힌다). URL 을 돌려준다. */
   issueLink(memberId: string): Promise<string>;
   recordMessage(memberId: string): Promise<void>;

@@ -117,6 +117,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       eraseMember: (id) => post(`/members/${id}/erase`).then(() => {}),
       erasePayer: (paymentId) => post(`/payments/${paymentId}/erase-payer`).then(() => {}),
       setPayerName: (paymentId, name) => post(`/payments/${paymentId}/payer-name`, { name }).then(() => {}),
+      setPaymentCourse: (paymentId, courseId) => post(`/payments/${paymentId}/course`, { courseId }).then(() => {}),
       issueLink: async (memberId) => (await call<{ url: string }>(`/members/${memberId}/link`, { method: 'POST' })).url,
       recordMessage: async (memberId) => { await call(`/members/${memberId}/messages`, { method: 'POST' }); },
       sendAlimtalkLink: (memberId) => call<{ ok: boolean; error?: string }>(`/members/${memberId}/messages`, { method: 'POST', body: { channel: 'ALIMTALK' } }),

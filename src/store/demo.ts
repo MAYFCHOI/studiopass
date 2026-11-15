@@ -188,6 +188,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             }));
           },
           setPayerName: async (paymentId, name) => { patchPayment(paymentId, { payerName: name.trim() }); },
+          setPaymentCourse: async (paymentId, courseId) => { patchPayment(paymentId, { courseId: courseId ?? undefined }); },
           erasePayer: async (paymentId) => { set((s) => ({ payments: s.payments.map((p) => (p.id === paymentId && !p.memberId ? { ...p, payerName: undefined, payerPhone: '' } : p)) })); },
           issueLink: async (memberId) => location.href.split('#')[0] + '#/members/' + memberId,
           recordMessage: async () => {},
@@ -242,7 +243,7 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           },
           addPayment: async (p) => {
             const dropIn = !!get().products.find((x) => x.active !== false && x.name === p.productName)?.dropIn;
-            const pay: Payment = { id: uid(), source: 'MANUAL', paidAt: p.paidAt ?? new Date().toISOString(), amount: p.amount, payerName: p.payerName, payerPhone: normalizePhone(p.payerPhone), productName: p.productName, status: 'APPROVED', dropIn, method: p.method };
+            const pay: Payment = { id: uid(), source: 'MANUAL', paidAt: p.paidAt ?? new Date().toISOString(), amount: p.amount, payerName: p.payerName, payerPhone: normalizePhone(p.payerPhone), productName: p.productName, status: 'APPROVED', dropIn, method: p.method, courseId: dropIn && !p.memberId ? p.courseId : undefined };
             set((s) => ({ payments: [...s.payments, pay] }));
             if (p.memberId) assign(pay.id, p.memberId);
           },

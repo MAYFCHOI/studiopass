@@ -347,3 +347,19 @@ describe('pass extension', () => {
     expect((await req('/passes/nope/extend', { method: 'POST', body: { days: 7 } }, d)).status).toBe(404);
   });
 });
+
+describe('drop-in class pick', () => {
+  it('sets and clears the class on a drop-in payment, refuses non drop-ins and unknown classes', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_w','WARM UP TRAINING',null,'COUNT',1,7,30000,1)").run();
+    const co = db.prepare("select id from courses limit 1").get() as { id: string };
+    const w = await (await req('/payments', { method: 'POST', body: { productName: 'WARM UP TRAINING', amount: 30000, payerName: '손님', courseId: co.id } }, d)).json();
+    expect(w).toMatchObject({ dropIn: true, courseId: co.id });
+    expect((await req(`/payments/${w.id}/course`, { method: 'POST', body: { courseId: 'nope' } }, d)).status).toBe(400);
+    expect(await (await req(`/payments/${w.id}/course`, { method: 'POST', body: { courseId: null } }, d)).json()).not.toHaveProperty('courseId');
+    expect((await (await req(`/payments/${w.id}/course`, { method: 'POST', body: { courseId: co.id } }, d)).json()).courseId).toBe(co.id);
+    const reg = await (await req('/payments', { method: 'POST', body: { productName: '정규 클래스 4회권', amount: 100000, payerName: 'x' } }, o)).json();
+    expect((await req(`/payments/${reg.id}/course`, { method: 'POST', body: { courseId: co.id } }, d)).status).toBe(400);
+    expect(db.prepare("select count(*) n from audit_log where action='payment.course'").get()).toEqual({ n: 2 });
+  });
+});

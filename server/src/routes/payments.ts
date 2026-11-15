@@ -59,7 +59,8 @@ export function paymentRoutes(d: Deps) {
   // Manual single entry. Linked to memberId when given, otherwise to the only member with the payer's phone (same rule as import).
   r.post('/payments', async (c) => {
     const b = await body(c);
-    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && !METHODS.includes(b.method))) return bad(c);
+    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && !METHODS.includes(b.method)) || !optStr(b.courseId)) return bad(c);
+    if (b.courseId && !db.prepare('select 1 from courses where id=?').get(b.courseId)) return bad(c);
     if (b.memberId && !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
     if (b.memberId && isErased(db, b.memberId)) return c.json({ error: 'ERASED' }, 409);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.payerPhone);
@@ -68,8 +69,9 @@ export function paymentRoutes(d: Deps) {
     if (hit) return c.json(hit.body as object, hit.status as 200);
     const id = db.transaction(() => {
       const id = newId();
-      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in) values(?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, findProduct(db, b.productName)?.drop_in ? 1 : 0);
+      const drop = findProduct(db, b.productName)?.drop_in ? 1 : 0;
+      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in,course_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, drop, drop && !b.memberId ? (b.courseId ?? null) : null);
       audit(db, staffId, 'payment.manual', 'payment', id);
       let memberId: string | undefined = b.memberId ?? undefined;
       if (!memberId && phone) { const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[]; if (m.length === 1) memberId = m[0].id; }
@@ -114,6 +116,20 @@ export function paymentRoutes(d: Deps) {
     if (!p) return notFound(c);
     if (p.member_id) return c.json({ error: 'LINKED' }, 409);
     setPayerName(db, id, b.name, c.get('me').staffId);
+    return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
+  });
+
+  // 원데이 결제의 수업 고르기(상품에 수업이 없을 때, 예: 웜업). 정산은 이 수업 강사 몫. null 이면 지운다. 회원에게 연결된 결제는 출석으로 세므로 409 LINKED.
+  r.post('/payments/:id/course', async (c) => {
+    const b = await body(c); const id = c.req.param('id');
+    if (!b || !(b.courseId === null || str(b.courseId))) return bad(c);
+    const p = db.prepare('select member_id, drop_in, course_id from payments where id=?').get(id) as { member_id: string | null; drop_in: number; course_id: string | null } | undefined;
+    if (!p) return notFound(c);
+    if (!p.drop_in) return bad(c);
+    if (p.member_id) return c.json({ error: 'LINKED' }, 409);
+    if (b.courseId && !db.prepare('select 1 from courses where id=?').get(b.courseId)) return bad(c);
+    db.prepare('update payments set course_id=? where id=?').run(b.courseId, id);
+    audit(db, c.get('me').staffId, 'payment.course', 'payment', id, { from: p.course_id, to: b.courseId });
     return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
   });
 

@@ -1,5 +1,6 @@
 import type { Db } from '../db.js';
 import { kstDate } from '../util.js';
+import { findProduct } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
 export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN' };
 export type DayLine = { date: string; heads: number; revenue: number; people: Person[] };
@@ -8,21 +9,35 @@ export type CourseLine = Terms & { courseId: string; name: string; weekday: numb
 export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
 type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number; payer_name: string | null };
 /**
- * 그 달(KST)의 원데이 결제: 회원 연결 없이 결제만 있는 건. 상품에 묶인 수업의 강사 몫으로 센다(수업이 없는 상품은 어느 강사에게도 가지 않는다).
+ * 그 달(KST)의 원데이 결제: 회원 연결 없이 결제만 있는 건. 결제에 고른 수업, 없으면 상품에 묶인 수업의 강사 몫으로 센다(둘 다 없으면 어느 강사에게도 가지 않는다).
  * 회원에게 연결돼 수강권이 생긴 원데이 결제는 출석으로 세므로 여기서 빼서 두 번 세지 않는다.
  */
 function dropIns(db: Db, month: string): DropIn[] {
   const [y, m] = month.split('-').map(Number);
   const from = new Date(Date.UTC(y, m - 1, 1) - 9 * 3600000).toISOString();
   const to = new Date(Date.UTC(y, m, 1) - 9 * 3600000).toISOString();
-  return db.prepare(`select c.instructor_id, pr.course_id, p.paid_at, p.amount, p.payer_name from payments p
-    join products pr on pr.name=p.product_name left join courses c on c.id=pr.course_id
-    where p.drop_in=1 and p.status='APPROVED' and p.pass_id is null and p.paid_at >= ? and p.paid_at < ?`).all(from, to) as DropIn[];
+  const rows = db.prepare(`select p.product_name, p.course_id, p.paid_at, p.amount, p.payer_name from payments p
+    where p.drop_in=1 and p.status='APPROVED' and p.pass_id is null and p.paid_at >= ? and p.paid_at < ?`).all(from, to) as any[];
+  const insOf = db.prepare('select instructor_id from courses where id=?');
+  const byName = db.prepare('select course_id from products where name=?'); // 쉬는 상품도(지난 달 정산)
+  return rows.map((r) => {
+    const courseId = r.course_id ?? (byName.get(r.product_name) as { course_id: string | null } | undefined)?.course_id ?? findProduct(db, r.product_name)?.course_id ?? null;
+    const c = courseId ? (insOf.get(courseId) as { instructor_id: string } | undefined) : undefined;
+    return { instructor_id: c?.instructor_id ?? null, course_id: courseId, paid_at: r.paid_at, amount: r.amount, payer_name: r.payer_name };
+  });
 }
 /**
  * 강사별 정산. 수업 단위로 계산한 뒤 더한다: 수업에 정산 조건이 있으면 그것, 없으면 강사 기본 조건.
  * 비율제는 그 수업 매출 × 강사 비율, 타임제는 그 수업 타임 수 × 1타임 금액(매출은 전부 학원).
  */
+/** 원데이 결제가 센 수업 날: 결제한 날부터 그 수업 요일이 처음 오는 날(미리 결제해도 수업 날 1타임으로 묶인다). 달은 넘기지 않는다 */
+function classDay(paid: string, weekday?: number) {
+  if (weekday === undefined) return paid;
+  const d = new Date(paid + 'T00:00:00Z');
+  const add = (weekday - d.getUTCDay() + 7) % 7;
+  const t = new Date(d.getTime() + add * 86400000);
+  return t.getUTCMonth() === d.getUTCMonth() ? t.toISOString().slice(0, 10) : paid;
+}
 export function settle(db: Db, month: string): SettlementLine[] {
   const ins = db.prepare('select id, name, settlement_type, ratio_instructor, per_session_fee from instructors').all() as any[];
   const courses = new Map((db.prepare('select id, name, weekday, start_time, settlement_type, ratio_instructor, per_session_fee from courses').all() as any[]).map((c) => [c.id, c]));
@@ -37,7 +52,7 @@ export function settle(db: Db, month: string): SettlementLine[] {
       days.set(date, [...(days.get(date) ?? []), p]);
     };
     for (const a of att) if (a.instructor_id === i.id) add(a.course_id, a.attended_on, { name: a.member ?? '', kind: a.kind, value: a.kind === 'PERIOD' || !(a.total_count > 0) ? 0 : a.price / a.total_count });
-    for (const d of drops) if (d.instructor_id === i.id && d.course_id) add(d.course_id, kstDate(new Date(d.paid_at)), { name: d.payer_name ?? '', kind: 'DROP_IN', value: d.amount });
+    for (const d of drops) if (d.instructor_id === i.id && d.course_id) add(d.course_id, classDay(kstDate(new Date(d.paid_at)), courses.get(d.course_id)?.weekday), { name: d.payer_name ?? '', kind: 'DROP_IN', value: d.amount });
     const lines: CourseLine[] = [...byCourse].map(([courseId, days]) => {
       const c = courses.get(courseId);
       const terms: Terms = c?.settlement_type ? { type: c.settlement_type, ratioInstructor: c.ratio_instructor ?? 0, perSessionFee: c.per_session_fee ?? 0 } : base;

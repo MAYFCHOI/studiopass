@@ -50,3 +50,32 @@ it('one instructor with a ratio class and a per-session class', () => {
   // 합계 = 수업별 합, 학원 몫은 비율제 수업에서만 강사 몫을 뺀다
   expect(line).toMatchObject({ sessions: 3, revenue: 67500, instructorPay: 91250, academyPay: 67500 - 11250 });
 });
+it('a drop-in product without a class counts for the class picked on the payment', () => {
+  const { db, course } = makeDb();
+  const c = course(); const ins = c.instructor_id;
+  db.prepare("update courses set settlement_type='PER_SESSION', per_session_fee=40000 where id=?").run(c.id);
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_w','WARM UP TRAINING',null,'COUNT',1,7,30000,1)").run();
+  const pay = db.prepare("insert into payments(id,source,external_id,paid_at,amount,payer_phone,product_name,status,created_at,drop_in,course_id,payer_name) values(?,'KIOSK',?,?,30000,'','WARM UP TRAINING','APPROVED','x',1,?,?)");
+  pay.run('w1', 'e1', '2026-10-19T09:00:00Z', c.id, '손님1');
+  pay.run('w2', 'e2', '2026-10-19T09:05:00Z', c.id, '손님2');
+  pay.run('w3', 'e3', '2026-10-20T09:00:00Z', null, '손님3'); // 수업 안 고름 → 아무 강사도 아님
+  const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
+  expect(line).toMatchObject({ sessions: 1, heads: 2, dropIns: 2, revenue: 60000, instructorPay: 40000 });
+  expect(line.courses[0].days[0].people.map((p) => p.name)).toEqual(['손님1', '손님2']);
+  expect(settle(db, '2026-10').reduce((n, l) => n + l.dropIns, 0)).toBe(2);
+});
+it('a drop-in paid a day early counts on the class day, not as a second session', () => {
+  const { db, member, pass, course } = makeDb();
+  const c = course(); const ins = c.instructor_id;
+  const wd = (db.prepare('select weekday from courses where id=?').get(c.id) as { weekday: number }).weekday;
+  db.prepare("update courses set settlement_type='PER_SESSION', per_session_fee=40000 where id=?").run(c.id);
+  // 2026-10 의 그 요일 중 1일보다 뒤인 날 하나와 그 전날
+  let day = 8; while (new Date(Date.UTC(2026, 9, day)).getUTCDay() !== wd) day++;
+  const iso = (dd: number, h: number) => new Date(Date.UTC(2026, 9, dd, h)).toISOString();
+  const a = member('가', '01000000001'); pass(a, { total: 8, remaining: 8 });
+  attend(db, { memberId: a, courseId: c.id, staffId: null, now: new Date(iso(day, 10)) });
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_w','WARM UP',null,'COUNT',1,7,30000,1)").run();
+  db.prepare("insert into payments(id,source,external_id,paid_at,amount,payer_phone,product_name,status,created_at,drop_in,course_id,payer_name) values('w1','KIOSK','e1',?,30000,'','WARM UP','APPROVED','x',1,?,'손님')").run(iso(day - 1, 5), c.id);
+  const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
+  expect(line).toMatchObject({ sessions: 1, heads: 2, instructorPay: 40000 });
+});

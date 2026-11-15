@@ -10,6 +10,8 @@ import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
 import type { Payment, ImportResult, AssignResult, PayMethod } from '../types';
+import { needsCourse, guessCourse, coursesFor } from '../lib/dropin';
+import { courseTitle } from '../lib/labels';
 
 const FIELDS: { key: keyof Mapping; label: string; need?: boolean }[] = [
   { key: 'paidAt', label: '결제 일시', need: true }, { key: 'amount', label: '금액', need: true }, { key: 'productName', label: '상품명', need: true },
@@ -46,6 +48,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const [review, setReview] = useState<Payment | null>(null);
   const [payerErase, setPayerErase] = useState(false);
   const [dropName, setDropName] = useState('');
+  const [dropCourse, setDropCourse] = useState(''); // 원데이 결제의 수업(웜업처럼 상품에 수업이 없을 때)
   const [manual, setManual] = useState(false);
   const [q, setQ] = useState('');
   const file = useRef<HTMLInputElement>(null);
@@ -90,17 +93,22 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   /** 회원은 연결됐는데 수강권이 없는 결제: 키오스크 상품명이 어떤 수강권 상품과도 맞지 않았다. */
   const noPass = (p: Payment) => p.status === 'APPROVED' && !!p.memberId && !p.passId;
   /** 원데이 결제: 회원 연결 없이 이름만 적으면 끝. 회원에게 연결했다면 보통 결제처럼 수강권이 있어야 한다. */
-  const dropOpen = (p: Payment) => !!p.dropIn && p.status === 'APPROVED' && (p.memberId ? !p.passId : !p.payerName);
+  /** 이름은 적었어도 수업이 없어 강사 정산에 안 들어가는 원데이(웜업 등) */
+  const noCourse = (p: Payment) => needsCourse(s, p) && !p.courseId;
+  const dropOpen = (p: Payment) => !!p.dropIn && p.status === 'APPROVED' && (p.memberId ? !p.passId : (!p.payerName || noCourse(p)));
   const queue = s.payments.filter((p) => !!p.review || (p.status === 'APPROVED' && (p.dropIn ? dropOpen(p) : (!p.memberId || !p.passId)))).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const all = [...s.payments].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const name = (id?: string) => s.members.find((m) => m.id === id)?.name;
   const month = s.payments.filter((p) => p.status === 'APPROVED' && dayjs(p.paidAt).format('YYYY-MM') === dayjs().format('YYYY-MM')).reduce((n, p) => n + (p.amount ?? 0), 0);
-  const openItem = (p: Payment) => (p.review ? setReview(p) : setAssign(p));
-  const closeAssign = () => { setAssign(null); setQ(''); setPayerErase(false); setDropName(''); };
+  const openAssign = (p: Payment) => { setAssign(p); setDropCourse(p.courseId ?? (needsCourse(s, p) ? guessCourse(s, p.productName, p.paidAt)?.id ?? '' : '')); };
+  const openItem = (p: Payment) => (p.review ? setReview(p) : openAssign(p));
+  const closeAssign = () => { setAssign(null); setQ(''); setPayerErase(false); setDropName(''); setDropCourse(''); };
   const saveDropName = (p: Payment) => run(async () => {
-    const n = dropName.trim(); if (!n) return;
-    await s.setPayerName(p.id, n).catch(() => null);
-    toast(`${n} 님 원데이로 적었어요`); closeAssign();
+    const n = dropName.trim() || p.payerName || ''; if (!n) return;
+    if (needsCourse(s, p) && dropCourse && dropCourse !== (p.courseId ?? '')) { if ((await s.setPaymentCourse(p.id, dropCourse).then(() => true, () => false)) === false) return; }
+    if (n !== p.payerName) await s.setPayerName(p.id, n).catch(() => null);
+    const c = s.courses.find((x) => x.id === dropCourse);
+    toast(needsCourse(s, p) && c ? `${n} 님 원데이 · ${courseTitle(s, c)} 수업으로 적었어요` : `${n} 님 원데이로 적었어요`); closeAssign();
   });
   const pick = (p: Payment, memberId: string, who: string) => run(async () => {
     const r = await s.assignPayment(p.id, memberId).catch(() => null);
@@ -140,8 +148,8 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
             const same = samePhoneMembers(s.members, p.payerPhone);
             return (
               <button className="row" key={p.id} onClick={() => openItem(p)}>
-                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : p.dropIn ? '원데이 · 이름만 적으면 돼요 (회원이면 회원 선택)' : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
-                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : p.dropIn ? '이름 적기' : '회원 연결'}</span></div>
+                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : p.dropIn ? (p.payerName && noCourse(p) ? '원데이 · 수업을 골라야 강사 정산에 들어가요' : '원데이 · 이름만 적으면 돼요 (회원이면 회원 선택)') : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
+                <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : p.dropIn ? (p.payerName && noCourse(p) ? '수업 고르기' : '이름 적기') : '회원 연결'}</span></div>
               </button>
             );
           })}
@@ -155,7 +163,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
               <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}
                 {p.review && <button className="chip amber" onClick={() => setReview(p)}>확인</button>}
                 {p.memberId && <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button>}
-                {p.status === 'APPROVED' && <button className="chip amber" onClick={() => setAssign(p)}>{!p.memberId ? (p.dropIn ? (p.payerName ? '원데이' : '이름 적기') : '회원 연결') : noPass(p) ? '상품 미확인' : '변경'}</button>}
+                {p.status === 'APPROVED' && <button className="chip amber" onClick={() => openAssign(p)}>{!p.memberId ? (p.dropIn ? (!p.payerName ? '이름 적기' : noCourse(p) ? '수업 고르기' : '원데이') : '회원 연결') : noPass(p) ? '상품 미확인' : '변경'}</button>}
               </div>
             </div>
           ))}
@@ -197,10 +205,23 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
           )}
           {assign.dropIn && !assign.memberId && (
             <div className="notice" role="note">
-              원데이 결제예요. 회원 등록이나 QR 없이 <b>이름만 적으면</b> 끝이에요. 회원이 결제한 거면 아래에서 회원을 골라 주세요(수강권이 생겨요).
+              원데이 결제예요. 회원 등록이나 QR 없이 <b>{needsCourse(s, assign) ? '이름과 수업만 적으면' : '이름만 적으면'}</b> 끝이에요. 회원이 결제한 거면 아래에서 회원을 골라 주세요(수강권이 생겨요).
+              {needsCourse(s, assign) && (() => {
+                const day = coursesFor(s, assign.productName, assign.paidAt); const dayIds = new Set(day.map((c) => c.id));
+                const rest = s.courses.filter((c) => c.active !== false && c.kind === 'GENERAL' && !dayIds.has(c.id));
+                return (
+                  <div className="field" style={{ marginTop: 10 }}><label style={{ color: 'inherit' }}>어느 수업이었나요? (이 수업 강사에게 정산돼요)</label>
+                    <select className="input" value={dropCourse} onChange={(e) => setDropCourse(e.target.value)}>
+                      <option value="">고르기</option>
+                      <optgroup label={`${dayjs(assign.paidAt).format('M/D (dd)')} 수업`}>{day.map((c) => <option key={c.id} value={c.id}>{c.startTime} {courseTitle(s, c)}{c.note ? ` · ${c.note}` : ''}</option>)}</optgroup>
+                      {rest.length > 0 && <optgroup label="다른 요일">{rest.map((c) => <option key={c.id} value={c.id}>{'일월화수목금토'[c.weekday[0]]} {c.startTime} {courseTitle(s, c)}</option>)}</optgroup>}
+                    </select>
+                  </div>
+                );
+              })()}
               <div className="btn-row" style={{ marginTop: 8 }}>
-                <input className="input" placeholder="손님 이름" value={dropName} onChange={(e) => setDropName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDropName(assign); }} />
-                <button className="btn primary" disabled={busy || !dropName.trim()} onClick={() => { void saveDropName(assign); }}>{busy ? '저장 중…' : '이름만 적기'}</button>
+                <input className="input" placeholder={assign.payerName || '손님 이름'} value={dropName} onChange={(e) => setDropName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDropName(assign); }} />
+                <button className="btn primary" disabled={busy || !(dropName.trim() || assign.payerName) || (needsCourse(s, assign) && !dropCourse)} onClick={() => { void saveDropName(assign); }}>{busy ? '저장 중…' : needsCourse(s, assign) ? '저장' : '이름만 적기'}</button>
               </div>
             </div>
           )}
@@ -348,16 +369,21 @@ function ManualPay({ onClose }: { onClose: () => void }) {
   const [guest, setGuest] = useState('');
   const today = dayjs().format('YYYY-MM-DD');
   const [day, setDay] = useState(today);
+  const [courseId, setCourseId] = useState(''); // 원데이인데 상품에 수업이 없을 때(웜업)
   const [key] = useState(newRequestKey); // 이 폼의 요청 키: 두 번 눌러도, 응답을 못 받고 다시 눌러도 결제는 하나
   const [busy, run] = useBusy();
   const total = Number(amount.replace(/\D/g, '')) || 0; // DESK 는 상품 가격을 모르니 금액을 직접 넣는다
   const drop = !!prod?.dropIn;
+  const at = day === today ? dayjs().toISOString() : dayjs(`${day}T12:00:00`).toISOString();
+  const pickCourse = drop && !member && !!prod && !prod.courseId;
+  const dayCourses = pickCourse ? coursesFor(s, prod!.name, at) : [];
+  const course = courseId || (pickCourse ? guessCourse(s, prod!.name, at)?.id ?? '' : '');
   const who = member?.name ?? guest.trim();
-  const ready = !!prod && total > 0 && (!!member || (drop && !!guest.trim()));
+  const ready = !!prod && total > 0 && (!!member || (drop && !!guest.trim())) && (!pickCourse || !!course);
   const choose = (id: string) => { setProductId(id); const p = products.find((x) => x.id === id); if (p?.price) setAmount(String(p.price)); };
   const submit = () => run(async () => {
     const paidAt = day === today ? undefined : dayjs(`${day}T12:00:00`).toISOString();
-    await s.addPayment({ memberId: member?.id, productName: prod!.name, amount: total, payerName: who, payerPhone: member?.phone, paidAt, method }, { idempotencyKey: key });
+    await s.addPayment({ memberId: member?.id, productName: prod!.name, amount: total, payerName: who, payerPhone: member?.phone, paidAt, method, courseId: pickCourse ? course : undefined }, { idempotencyKey: key });
     toast(member && !drop ? `${who} 결제 등록, 수강권이 생겼어요` : `${who} 님 원데이 결제 등록`); onClose();
   });
   const regular = products.filter((p) => !p.dropIn); const drops = products.filter((p) => p.dropIn);
@@ -370,6 +396,7 @@ function ManualPay({ onClose }: { onClose: () => void }) {
         {drops.length > 0 && <optgroup label="원데이">{drops.map((p) => <option key={p.id} value={p.id}>{p.name}{maybeWon(p.price, ' · ')}</option>)}</optgroup>}
       </select></div>
       <div className="field"><label>금액</label><input className="input" inputMode="numeric" placeholder="원" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      {pickCourse && <div className="field"><label>어느 수업이었나요? (이 수업 강사에게 정산돼요)</label><select className="input" value={course} onChange={(e) => setCourseId(e.target.value)}><option value="">고르기</option>{dayCourses.map((c) => <option key={c.id} value={c.id}>{c.startTime} {courseTitle(s, c)}{c.note ? ` · ${c.note}` : ''}</option>)}</select></div>}
       {drop && !member && <div className="field"><label>손님 이름</label><input className="input" placeholder="이름만 적으면 돼요" value={guest} onChange={(e) => setGuest(e.target.value)} /></div>}
       <div className="field"><label>{drop ? '회원이면 회원 고르기 (선택)' : '회원'}</label>
         {member
