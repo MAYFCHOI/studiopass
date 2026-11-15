@@ -186,6 +186,17 @@ export function linkRefund(db: Db, refundId: string, originalId: string, staffId
   })();
 }
 /** 원데이 손님 이름만 적는다(회원 등록 없이). 회원에게 연결된 결제는 회원 이름을 쓰므로 건드리지 않는다. */
+/**
+ * 원데이 상품을 저장했을 때, 그 상품 이름으로 이미 들어와 있고 아직 아무 회원에게도 연결되지 않은 결제를 원데이로 표시한다
+ * (POS 에 상품을 먼저 만들고 앱 상품은 나중에 등록한 경우). 바뀐 결제 수를 돌려준다.
+ */
+export function markDropInPayments(db: Db, productId: string) {
+  const open = db.prepare("select id, product_name from payments where status='APPROVED' and drop_in=0 and member_id is null and pass_id is null").all() as { id: string; product_name: string }[];
+  const mark = db.prepare('update payments set drop_in=1 where id=?');
+  let n = 0;
+  for (const p of open) if (findProduct(db, p.product_name)?.id === productId) { mark.run(p.id); n++; }
+  return n;
+}
 export function setPayerName(db: Db, paymentId: string, name: string, staffId: string | null) {
   const n = db.prepare('update payments set payer_name=? where id=? and member_id is null').run(name.trim(), paymentId).changes;
   if (n) audit(db, staffId, 'payment.payer_name', 'payment', paymentId);

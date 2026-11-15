@@ -9,7 +9,7 @@ import { useBusy, newRequestKey } from '../lib/useBusy';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
-import type { Payment, ImportResult, AssignResult } from '../types';
+import type { Payment, ImportResult, AssignResult, PayMethod } from '../types';
 
 const FIELDS: { key: keyof Mapping; label: string; need?: boolean }[] = [
   { key: 'paidAt', label: '결제 일시', need: true }, { key: 'amount', label: '금액', need: true }, { key: 'productName', label: '상품명', need: true },
@@ -121,11 +121,11 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
     <>
       <h1>{owner && <small>이달 결제 {won(month)}</small>}결제</h1>
       <div className="btn-row">
-        <button className="btn primary wide" onClick={() => file.current?.click()}><Icon name="upload" size={18} />키오스크 엑셀 올리기</button>
-        <button className="btn" onClick={() => setManual(true)}>직접 입력</button>
+        <button className="btn primary wide" onClick={() => setManual(true)}>현금·이체 결제 넣기</button>
+        <button className="btn" onClick={() => file.current?.click()}><Icon name="upload" size={18} />엑셀</button>
       </div>
       <input ref={file} type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); e.target.value = ''; }} />
-      <p className="sub">키오스크 관리 웹에서 내려받은 결제 내역을 그대로 올리면 돼요. 휴대폰 번호가 같은 회원에게 자동으로 연결되고 수강권이 생겨요. 번호가 안 맞는 결제만 아래에서 직접 골라주면 돼요. <button className="chip" onClick={() => { const b = new Blob(['﻿' + sampleCsv()], { type: 'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kiosk-sample.csv'; a.click(); }}>샘플 파일</button></p>
+      <p className="sub">토스 키오스크·포스 결제는 저절로 들어와요. 현금이나 계좌이체로 받은 결제만 위 버튼으로 넣어 주세요. 엑셀은 예전 결제 내역을 한꺼번에 올릴 때만 써요. <button className="chip" onClick={() => { const b = new Blob(['﻿' + sampleCsv()], { type: 'text/csv' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kiosk-sample.csv'; a.click(); }}>샘플 파일</button></p>
 
       {result && <ImportPanel r={result} owner={owner} busy={busy} onClose={() => setResult(null)} onRevert={revert} />}
 
@@ -151,7 +151,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         <div className="list">
           {all.slice(0, 100).map((p) => (
             <div className="row" key={p.id} style={p.status === 'CANCELLED' ? { opacity: .45 } : undefined}>
-              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : '수동'}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}{p.review && ` · ${REVIEW_TEXT[p.review]}`}</div></div>
+              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : METHOD_TEXT[p.method ?? ''] ?? '직접 입력'}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}{p.review && ` · ${REVIEW_TEXT[p.review]}`}</div></div>
               <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}
                 {p.review && <button className="chip amber" onClick={() => setReview(p)}>확인</button>}
                 {p.memberId && <button className="chip" onClick={() => go('members', p.memberId)}>{name(p.memberId)}</button>}
@@ -330,27 +330,60 @@ function ReviewSheet({ p, busy, run, onClose, go, onCancel }: { p: Payment; busy
   );
 }
 
+const METHODS: [PayMethod, string][] = [['CASH', '현금'], ['TRANSFER', '계좌이체'], ['OTHER', '기타']];
+const METHOD_TEXT: Record<string, string> = Object.fromEntries(METHODS);
+
+/** 현금·이체처럼 키오스크 밖에서 받은 결제. 수강권 상품은 회원을 고르고, 원데이 상품은 손님 이름만 적어도 된다. */
 function ManualPay({ onClose }: { onClose: () => void }) {
   const s = useStore();
   const live = s.members.filter((m) => !m.erased);
-  const products = s.products.filter((p) => p.active !== false);
-  const [memberId, setMemberId] = useState(live[0]?.id ?? '');
-  const [productId, setProductId] = useState(products[0]?.id ?? '');
+  const products = s.products.filter((p) => p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const [method, setMethod] = useState<PayMethod>('CASH');
+  const [productId, setProductId] = useState('');
   const prod = products.find((p) => p.id === productId);
-  const [amount, setAmount] = useState(String(prod?.price ?? ''));
+  const [amount, setAmount] = useState('');
+  const [q, setQ] = useState('');
+  const [memberId, setMemberId] = useState('');
+  const member = live.find((m) => m.id === memberId);
+  const [guest, setGuest] = useState('');
+  const today = dayjs().format('YYYY-MM-DD');
+  const [day, setDay] = useState(today);
   const [key] = useState(newRequestKey); // 이 폼의 요청 키: 두 번 눌러도, 응답을 못 받고 다시 눌러도 결제는 하나
   const [busy, run] = useBusy();
-  const total = Number(amount) || prod?.price || 0; // DESK 는 상품 가격을 모르니 금액을 직접 넣는다
+  const total = Number(amount.replace(/\D/g, '')) || 0; // DESK 는 상품 가격을 모르니 금액을 직접 넣는다
+  const drop = !!prod?.dropIn;
+  const who = member?.name ?? guest.trim();
+  const ready = !!prod && total > 0 && (!!member || (drop && !!guest.trim()));
+  const choose = (id: string) => { setProductId(id); const p = products.find((x) => x.id === id); if (p?.price) setAmount(String(p.price)); };
+  const submit = () => run(async () => {
+    const paidAt = day === today ? undefined : dayjs(`${day}T12:00:00`).toISOString();
+    await s.addPayment({ memberId: member?.id, productName: prod!.name, amount: total, payerName: who, payerPhone: member?.phone, paidAt, method }, { idempotencyKey: key });
+    toast(member && !drop ? `${who} 결제 등록, 수강권이 생겼어요` : `${who} 님 원데이 결제 등록`); onClose();
+  });
+  const regular = products.filter((p) => !p.dropIn); const drops = products.filter((p) => p.dropIn);
   return (
-    <Sheet onClose={onClose} title="직접 입력 (현금·이체)">
-      <div className="field"><label>회원</label><select className="input" value={memberId} onChange={(e) => setMemberId(e.target.value)}>{live.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.memberNo}</option>)}</select></div>
-      <div className="field"><label>상품</label><select className="input" value={productId} onChange={(e) => { setProductId(e.target.value); setAmount(String(products.find((p) => p.id === e.target.value)?.price ?? '')); }}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}{maybeWon(p.price, ' · ')}</option>)}</select></div>
-      <div className="field"><label>금액</label><input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-      <button className="btn primary wide" disabled={busy || !memberId || !prod || !total} onClick={() => { void run(async () => {
-        const m = s.members.find((x) => x.id === memberId)!;
-        await s.addPayment({ memberId, productName: prod!.name, amount: total, payerName: m.name, payerPhone: m.phone }, { idempotencyKey: key });
-        toast(`${m.name} 결제 등록, 수강권이 생겼어요`); onClose();
-      }); }}>{busy ? '등록 중…' : '등록'}</button>
+    <Sheet onClose={onClose} title="현금·이체 결제 넣기">
+      <div className="field"><label>받은 방법</label><div className="seg">{METHODS.map(([v, t]) => <button key={v} aria-pressed={method === v} onClick={() => setMethod(v)}>{t}</button>)}</div></div>
+      <div className="field"><label>상품</label><select className="input" value={productId} onChange={(e) => choose(e.target.value)}>
+        <option value="">상품 고르기</option>
+        {regular.length > 0 && <optgroup label="수강권">{regular.map((p) => <option key={p.id} value={p.id}>{p.name}{maybeWon(p.price, ' · ')}</option>)}</optgroup>}
+        {drops.length > 0 && <optgroup label="원데이">{drops.map((p) => <option key={p.id} value={p.id}>{p.name}{maybeWon(p.price, ' · ')}</option>)}</optgroup>}
+      </select></div>
+      <div className="field"><label>금액</label><input className="input" inputMode="numeric" placeholder="원" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      {drop && !member && <div className="field"><label>손님 이름</label><input className="input" placeholder="이름만 적으면 돼요" value={guest} onChange={(e) => setGuest(e.target.value)} /></div>}
+      <div className="field"><label>{drop ? '회원이면 회원 고르기 (선택)' : '회원'}</label>
+        {member
+          ? <div className="row"><div className="avatar">{member.name.slice(-2)}</div><div className="main"><div className="t">{member.name}</div><div className="d">{fmtPhone(member.phone)} · {member.memberNo}</div></div><button className="chip" onClick={() => setMemberId('')}>바꾸기</button></div>
+          : <>
+              <input className="input" placeholder="회원 이름, 전화번호 뒷자리" value={q} onChange={(e) => setQ(e.target.value)} />
+              {q.trim() && <div className="list">{live.filter((m) => matchMember(m, q)).slice(0, 6).map((m) => (
+                <button className="row" key={m.id} onClick={() => { setMemberId(m.id); setQ(''); }}>
+                  <div className="avatar">{m.name.slice(-2)}</div><div className="main"><div className="t">{m.name}</div><div className="d">{fmtPhone(m.phone)} · {m.memberNo}</div></div>
+                </button>))}</div>}
+            </>}
+      </div>
+      <div className="field"><label>받은 날</label><input className="input" type="date" max={today} value={day} onChange={(e) => setDay(e.target.value || today)} /></div>
+      <button className="btn primary wide" disabled={busy || !ready} onClick={() => { void submit(); }}>{busy ? '등록 중…' : ready ? `${who} · ${won(total)} 등록` : '등록'}</button>
     </Sheet>
   );
 }

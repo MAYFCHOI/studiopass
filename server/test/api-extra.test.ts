@@ -277,3 +277,41 @@ describe('final review fixes', () => {
     expect((await app.request('/members')).headers.get('referrer-policy')).toBeNull();
   });
 });
+
+describe('drop-in (원데이) products added after payments came in, and cash drop-ins', () => {
+  const toss = (externalId: string, productName: string) => ({ source: 'KIOSK', externalId, paidAt: '2026-11-13T11:06:44.000Z', amount: 40000, payerName: null, payerPhone: null, productName });
+  it('saving a drop-in product marks earlier unlinked payments with that name', async () => {
+    const o = await login('owner');
+    await req('/payments/import', { method: 'POST', body: { rows: [toss('d1', 'Yeni Cho 1Day'), toss('d2', 'Yeni Cho 1Day'), toss('d3', '정규 클래스 1회권')] } }, o);
+    expect(db.prepare("select count(*) n from payments where drop_in=1").get().n).toBe(0);
+    const course = db.prepare('select id from courses limit 1').get();
+    const res = await req('/products/p_1day', { method: 'PUT', body: { name: 'Yeni Cho 1Day', courseId: course.id, passKind: 'COUNT', count: 1, periodDays: 7, price: 40000, dropIn: true } }, o);
+    expect(res.status).toBe(200);
+    expect(db.prepare("select external_id from payments where drop_in=1 order by external_id").all().map((r: any) => r.external_id)).toEqual(['d1', 'd2']);
+  });
+  it('a linked payment is left alone', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '마', phone: '01012121212' } }, o)).json();
+    await req('/payments/import', { method: 'POST', body: { rows: [toss('d4', 'Yeni Cho 1Day')] } }, o);
+    const pay = db.prepare("select id from payments where external_id='d4'").get();
+    await req('/products/p_1day', { method: 'PUT', body: { name: 'Yeni Cho 1Day', passKind: 'COUNT', count: 1, periodDays: 7, price: 40000 } }, o);
+    await req(`/payments/${pay.id}/assign`, { method: 'POST', body: { memberId: m.id } }, o);
+    await req('/products/p_1day', { method: 'PUT', body: { dropIn: true } }, o);
+    expect(db.prepare("select drop_in from payments where external_id='d4'").get().drop_in).toBe(0);
+  });
+  it('cash entry of a drop-in product needs only a name and is marked drop-in', async () => {
+    const o = await login('owner');
+    await req('/products/p_1day', { method: 'PUT', body: { name: 'Yeni Cho 1Day', passKind: 'COUNT', count: 1, periodDays: 7, price: 40000, dropIn: true } }, o);
+    const pay = await (await req('/payments', { method: 'POST', body: { amount: 40000, productName: 'Yeni Cho 1Day', payerName: '홍길동' } }, o)).json();
+    expect(pay).toMatchObject({ source: 'MANUAL', payerName: '홍길동', dropIn: true });
+    expect(pay.memberId).toBeFalsy();
+  });
+  it('manual entry keeps the payment method and rejects unknown ones', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '바', phone: '01034343434' } }, o)).json();
+    const pay = await (await req('/payments', { method: 'POST', body: { amount: 30000, productName: '정규 클래스 1회권', memberId: m.id, method: 'TRANSFER' } }, o)).json();
+    expect(pay).toMatchObject({ method: 'TRANSFER', memberId: m.id, dropIn: false });
+    expect(pay.passId).toBeTruthy();
+    expect((await req('/payments', { method: 'POST', body: { amount: 30000, productName: '정규 클래스 1회권', method: 'BITCOIN' } }, o)).status).toBe(400);
+  });
+});

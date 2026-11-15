@@ -3,6 +3,8 @@ export type CourseKind = 'GENERAL' | 'PRO';
 export type PassKind = 'COUNT' | 'PERIOD';
 export type PaymentStatus = 'APPROVED' | 'CANCELLED';
 export type PaymentSource = 'KIOSK' | 'MANUAL';
+/** 직접 입력한 결제의 수단. 키오스크 결제는 없음. */
+export type PayMethod = 'CASH' | 'TRANSFER' | 'OTHER';
 export type Hall = 'HUB' | 'LAB';
 
 export interface Member {
@@ -66,6 +68,7 @@ export interface Payment {
   status: PaymentStatus;
   memberId?: string; // assigned member
   dropIn?: boolean; // 적재 당시 원데이 상품이었던 결제
+  method?: PayMethod;
   passId?: string; // pass created
   /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행,
    *  REFUND_SUGGESTED: 원 결제 후보가 하나(refundSuggestedOf). 승인번호가 다른 환불은 사람이 확정할 때만 원 결제를 취소한다 */
@@ -155,7 +158,8 @@ export interface SettlementDetail {
   payments: { paidAt: string; member: string | null; payerName: string | null; productName: string; amount: number; status: Payment['status']; source: Payment['source']; externalId: string | null }[];
 }
 
-export interface NewPayment { memberId: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string }
+/** 직접 입력. memberId 가 없으면 원데이 손님(이름만). */
+export interface NewPayment { memberId?: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string; method?: PayMethod }
 
 export interface Actions {
   load(): Promise<void>;

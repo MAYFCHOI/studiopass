@@ -231,9 +231,10 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             return { attendances: s.attendances.filter((a) => a.memberId === memberId), payments: s.payments.filter((p) => p.memberId === memberId), passes: s.passes.filter((p) => p.memberId === memberId) };
           },
           addPayment: async (p) => {
-            const pay: Payment = { id: uid(), source: 'MANUAL', paidAt: p.paidAt ?? new Date().toISOString(), amount: p.amount, payerName: p.payerName, payerPhone: normalizePhone(p.payerPhone), productName: p.productName, status: 'APPROVED' };
+            const dropIn = !!get().products.find((x) => x.active !== false && x.name === p.productName)?.dropIn;
+            const pay: Payment = { id: uid(), source: 'MANUAL', paidAt: p.paidAt ?? new Date().toISOString(), amount: p.amount, payerName: p.payerName, payerPhone: normalizePhone(p.payerPhone), productName: p.productName, status: 'APPROVED', dropIn, method: p.method };
             set((s) => ({ payments: [...s.payments, pay] }));
-            assign(pay.id, p.memberId);
+            if (p.memberId) assign(pay.id, p.memberId);
           },
           assignPayment: async (paymentId, memberId) => assign(paymentId, memberId),
           cancelPayment: async (paymentId) => cancelSync(paymentId),

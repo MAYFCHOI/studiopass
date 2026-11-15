@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { newId } from '../util.js';
 import { audit } from '../audit.js';
 import { settle, settlementDetail } from '../domain/settlement.js';
+import { markDropInPayments } from '../domain/payments.js';
 import { createStaff } from '../auth/sessions.js';
 import { toInstructor, toCourse, toProduct } from '../serialize.js';
 import { type AppEnv, type Deps, ownerOnly, body, bad, notFound, str, optStr, int, maxLen, LIMITS, clientIp } from './common.js';
@@ -72,6 +73,7 @@ export function ownerRoutes(d: Deps) {
         .run(id, v.name.trim(), v.courseId ?? null, v.passKind, v.count, v.periodDays, v.price, v.active === false ? 0 : 1, v.dropIn === true ? 1 : 0);
       db.prepare("insert into settings(key,value) values('needs_real_prices','0') on conflict(key) do update set value='0'").run();
       audit(db, c.get('me').staffId, cur ? 'product.update' : 'product.create', 'product', id, b);
+      if (v.dropIn === true && v.active !== false) markDropInPayments(db, id);
     })();
     return c.json(toProduct(db.prepare('select * from products where id=?').get(id), 'OWNER'));
   });

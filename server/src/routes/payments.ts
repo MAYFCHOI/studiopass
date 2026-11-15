@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { newId, nowIso, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
-import { type PaymentInput, ingestPayments, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
+import { type PaymentInput, ingestPayments, findProduct, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
 import { idemKey, idemGet, idemPut } from '../idempotency.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
@@ -26,6 +26,7 @@ export function rowProblem(r: any): string | null {
   return null;
 }
 const BATCH = /^[A-Za-z0-9_-]{8,40}$/;
+const METHODS = ['CASH', 'TRANSFER', 'OTHER'];
 
 export function paymentRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db; const onPass = passNotifier(d);
@@ -58,7 +59,7 @@ export function paymentRoutes(d: Deps) {
   // Manual single entry. Linked to memberId when given, otherwise to the only member with the payer's phone (same rule as import).
   r.post('/payments', async (c) => {
     const b = await body(c);
-    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt))))) return bad(c);
+    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && !METHODS.includes(b.method))) return bad(c);
     if (b.memberId && !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
     if (b.memberId && isErased(db, b.memberId)) return c.json({ error: 'ERASED' }, 409);
     const staffId = c.get('me').staffId; const phone = normalizePhone(b.payerPhone);
@@ -67,8 +68,8 @@ export function paymentRoutes(d: Deps) {
     if (hit) return c.json(hit.body as object, hit.status as 200);
     const id = db.transaction(() => {
       const id = newId();
-      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at) values(?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName ?? null, phone, b.productName, 'APPROVED', staffId, nowIso());
+      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in) values(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, findProduct(db, b.productName)?.drop_in ? 1 : 0);
       audit(db, staffId, 'payment.manual', 'payment', id);
       let memberId: string | undefined = b.memberId ?? undefined;
       if (!memberId && phone) { const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[]; if (m.length === 1) memberId = m[0].id; }
