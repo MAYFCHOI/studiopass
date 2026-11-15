@@ -23,6 +23,7 @@ export default function Settings() {
   const s = useStore();
   const [edit, setEdit] = useState<{ kind: 'ins'; v: Instructor } | { kind: 'course'; v: Course } | { kind: 'product'; v: Product } | null>(null);
   const saved = () => { setEdit(null); toast('저장했어요'); };
+  const [allCourses, setAllCourses] = useState(false);
 
   return (
     <>
@@ -30,18 +31,18 @@ export default function Settings() {
       <h1><small>{s.studioName}</small>설정</h1>
 
       <h2>수업 시간표</h2>
-      <p className="sub">칸을 누르면 수업을 고칠 수 있어요.</p>
+      <p className="sub">칸을 누르면 수업을 고칠 수 있어요. 시간표에서 안 보이는 수업은 아래 수업 전체 목록에서 찾으세요.</p>
       <Timetable onPick={(c) => setEdit({ kind: 'course', v: { ...c } })} />
-      {s.courses.some(off) && (<>
-        <p className="sub" style={{ marginTop: 12 }}>쉬는 수업 (시간표·출석에서 빠짐)</p>
+      <button className="btn sm ghost" style={{ marginTop: 12 }} aria-expanded={allCourses} onClick={() => setAllCourses((v) => !v)}>{allCourses ? '수업 목록 접기' : `수업 전체 목록 (${s.courses.length})`}</button>
+      {allCourses && (
         <div className="list">
-          {s.courses.filter(off).map((c) => (
-            <button className="row" key={c.id} style={{ opacity: .6 }} onClick={() => setEdit({ kind: 'course', v: { ...c } })}>
-              <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{courseMeta(c)} · 쉬는 중</div></div>
+          {[...s.courses].sort((a, b) => Number(off(a)) - Number(off(b)) || (a.weekday[0] ?? 9) - (b.weekday[0] ?? 9) || a.startTime.localeCompare(b.startTime)).map((c) => (
+            <button className="row" key={c.id} style={off(c) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'course', v: { ...c } })}>
+              <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{c.weekday.map((w) => '일월화수목금토'[w]).join('·')}요일 · {courseMeta(c)}{off(c) && ' · 쉬는 중 (시간표·출석에서 빠짐)'}</div></div>
             </button>
           ))}
         </div>
-      </>)}
+      )}
       <button className="btn sm" style={{ marginTop: 10 }} onClick={() => setEdit({ kind: 'course', v: { id: newId(), name: '', instructorId: s.instructors[0]?.id ?? '', kind: 'GENERAL', hall: 'HUB', level: 'ALL', weekday: [1], startTime: '19:00', durationMin: 80 } })}>수업 추가</button>
 
       <h2>강사와 정산 기준</h2>

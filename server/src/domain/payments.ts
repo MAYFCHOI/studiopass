@@ -11,12 +11,12 @@ export class AssignError extends Error { constructor(public code: 'PAYMENT_CANCE
 /** 환불 행이 원 결제를 찾는 기간(일). */
 export const REFUND_MATCH_DAYS = 30;
 
-const squash = (s: string) => (s ?? '').replace(/\s+/g, '');
+const squash = (s: string) => (s ?? '').replace(/\s+/g, '').toLowerCase();
 export function findProduct(db: Db, name: string) {
   const all = db.prepare('select id,name,course_id,pass_kind,count,period_days,drop_in from products where active=1').all() as ProductRow[];
   const n = squash(name);
   if (!n) return undefined;
-  // 띄어쓰기만 다른 이름("정규 클래스  1회권" / "정규클래스 1회권")은 같은 상품으로 본다.
+  // 띄어쓰기나 대소문자만 다른 이름("정규 클래스  1회권" / "정규클래스 1회권", "Yeni Cho 1Day" / "YENI CHO 1DAY")은 같은 상품으로 본다.
   const exact = all.find((p) => squash(p.name) === n);
   if (exact) return exact;
   return all.filter((p) => squash(p.name) && n.includes(squash(p.name))).sort((a, b) => squash(b.name).length - squash(a.name).length)[0];

@@ -13,7 +13,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const s = useStore();
   const t = dayjs().format('YYYY-MM-DD');
   const todayAtt = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM-DD') === t);
-  const unassigned = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId);
+  // 결제 탭 '확인 필요'와 같은 기준: 회원이 없는 결제. 단 이름을 적은 원데이는 끝난 것.
+  const unassigned = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId && !(p.dropIn && p.payerName));
   const wd = dayjs().day();
   const live = s.courses.filter((c) => c.active !== false); // 쉬는 수업은 오늘 화면에 안 보인다
   const classes = live.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
@@ -53,7 +54,7 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
 
       {unassigned.length > 0 && (
         <button className="alert" onClick={() => go('payments')}>
-          <span>회원과 연결되지 않은 결제가 <b className="num">{unassigned.length}건</b> 있어요</span>
+          <span>확인할 결제가 <b className="num">{unassigned.length}건</b> 있어요</span>
           <span className="alert-go">결제 확인하기</span>
         </button>
       )}

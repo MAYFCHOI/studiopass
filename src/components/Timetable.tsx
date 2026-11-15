@@ -40,8 +40,11 @@ export function Timetable({ onPick }: { onPick?: (c: Course) => void }) {
                 <b className="num">{hhmm(r)}~{hhmm(r + Math.max(...inRow.map((c) => c.durationMin)))}</b>
               </div>,
               ...days.map((d) => {
-                const c = inRow.find((x) => x.weekday.includes(d.wd));
-                return c ? <ClassCard key={r + '-' + d.wd} c={c} time={toMin(c.startTime) !== r} onClick={onPick ? () => onPick(c) : undefined} /> : <div key={r + '-' + d.wd} className="cc empty" aria-hidden />;
+                // 비슷한 시간(45분 안)의 같은 요일 수업이 둘 이상이면 한 칸에 쌓는다(하나만 그리면 나머지가 화면에서 사라진다).
+                const cs = inRow.filter((x) => x.weekday.includes(d.wd)).sort((a, b) => a.startTime.localeCompare(b.startTime));
+                const card = (c: Course) => <ClassCard key={c.id} c={c} time={toMin(c.startTime) !== r} onClick={onPick ? () => onPick(c) : undefined} />;
+                if (!cs.length) return <div key={r + '-' + d.wd} className="cc empty" aria-hidden />;
+                return cs.length === 1 ? card(cs[0]) : <div key={r + '-' + d.wd} className="tt-stack">{cs.map(card)}</div>;
               }),
             ];
           })}

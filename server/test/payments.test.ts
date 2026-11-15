@@ -126,3 +126,13 @@ describe('drop-in (원데이) products', () => {
     expect((db.prepare('select drop_in from payments').get() as any).drop_in).toBe(0);
   });
 });
+
+describe('product name matching', () => {
+  it('ignores case as well as spaces', async () => {
+    const { findProduct } = await import('../src/domain/payments.js');
+    const { db } = makeDb();
+    db.prepare("insert into products(id,name,pass_kind,count,period_days,price,drop_in) values('p_y','Yeni Cho 1Day','COUNT',1,7,40000,1)").run();
+    expect(findProduct(db, 'YENI CHO 1DAY')?.id).toBe('p_y');
+    expect(findProduct(db, 'yeni cho  1day')?.id).toBe('p_y');
+  });
+});
