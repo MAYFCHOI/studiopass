@@ -414,6 +414,20 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .lg-pay { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: 20px; }
 .lg-row > [data-k] { display: none; }
 .lg-idle { margin: 10px 0 0; }
+.lg-open { cursor: pointer; }
+.lg-open:hover, .lg-open:focus-visible { background: var(--surface-2); outline: none; }
+.sd-total { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sd-total span { font-weight: 700; color: var(--ink-2); }
+.sd-total b { font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: 30px; }
+.sd-course { border-top: 2px solid var(--ink); padding: 12px 0 4px; margin-top: 8px; }
+.sd-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.sd-head span { font-size: 13px; color: var(--mute); }
+.sd-formula { margin: 6px 0 8px; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-weight: 700; font-size: 14px; }
+.sd-day { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.sd-date { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.sd-date span { color: var(--mute); }
+.sd-people { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+.sd-people em { font-style: normal; font-size: 11px; margin-left: 4px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--mute); }
 @media (min-width: 900px) {
   .settle-page .fig b { font-size: 30px; }
   .lg-row { grid-template-columns: 1.4fr 1.2fr .7fr .7fr 1fr 1fr 1.1fr; gap: 12px; padding: 14px 0; }

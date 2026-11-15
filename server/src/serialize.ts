@@ -13,7 +13,11 @@ export const toInstructor = (r: any, role: Role) => ({
   id: r.id, name: r.name, crew: r.genres, settlementType: r.settlement_type, active: !!r.active,
   ...(owner(role) ? { ratioInstructor: r.ratio_instructor, perSessionFee: r.per_session_fee } : {}),
 });
-export const toCourse = (r: any) => ({ id: r.id, name: r.name, instructorId: r.instructor_id, kind: r.kind, hall: r.hall, level: opt(r.level), note: opt(r.note), weekday: [r.weekday], startTime: r.start_time, durationMin: r.duration_min, active: !!r.active });
+export const toCourse = (r: any, role: Role) => ({
+  id: r.id, name: r.name, instructorId: r.instructor_id, kind: r.kind, hall: r.hall, level: opt(r.level), note: opt(r.note), weekday: [r.weekday], startTime: r.start_time, durationMin: r.duration_min, active: !!r.active,
+  // 수업별 정산 조건(없으면 강사 기본). DESK 에게는 주지 않는다
+  ...(owner(role) ? { settlementType: opt(r.settlement_type), ratioInstructor: opt(r.ratio_instructor), perSessionFee: opt(r.per_session_fee) } : {}),
+});
 export const toProduct = (r: any, role: Role) => ({
   id: r.id, name: r.name, courseId: opt(r.course_id), passKind: r.pass_kind, count: r.count, periodDays: r.period_days, active: !!r.active, dropIn: !!r.drop_in,
   ...(owner(role) ? { price: r.price } : {}),

@@ -38,7 +38,7 @@ export default function Settings() {
         <div className="list">
           {[...s.courses].sort((a, b) => Number(off(a)) - Number(off(b)) || (a.weekday[0] ?? 9) - (b.weekday[0] ?? 9) || a.startTime.localeCompare(b.startTime)).map((c) => (
             <button className="row" key={c.id} style={off(c) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'course', v: { ...c } })}>
-              <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{c.weekday.map((w) => '일월화수목금토'[w]).join('·')}요일 · {courseMeta(c)}{off(c) && ' · 쉬는 중 (시간표·출석에서 빠짐)'}</div></div>
+              <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{c.weekday.map((w) => '일월화수목금토'[w]).join('·')}요일 · {courseMeta(c)}{c.settlementType && ` · 정산 ${c.settlementType === 'RATIO' ? `비율제 ${c.ratioInstructor ?? 0}%` : `타임제 ${won(c.perSessionFee ?? 0)}`}`}{off(c) && ' · 쉬는 중 (시간표·출석에서 빠짐)'}</div></div>
             </button>
           ))}
         </div>
@@ -119,6 +119,25 @@ export default function Settings() {
             <div className="field"><label>길이(분)</label><input className="input" inputMode="numeric" value={edit.v.durationMin} onChange={(e) => setEdit({ kind: 'course', v: { ...edit.v, durationMin: Number(e.target.value) || 0 } })} /></div>
           </div>
           <div className="field"><label>종류</label><div className="seg"><button aria-pressed={edit.v.kind === 'GENERAL'} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, kind: 'GENERAL' } })}>일반</button><button aria-pressed={edit.v.kind === 'PRO'} onClick={() => setEdit({ kind: 'course', v: { ...edit.v, kind: 'PRO' } })}>전문반</button></div></div>
+          {(() => {
+            // 수업별 정산: 비워 두면 강사 기본. 한 강사가 비율제·타임제 수업을 같이 할 때 이 수업만 바꾼다
+            const ins = s.instructors.find((i) => i.id === edit.v.instructorId);
+            const base = ins ? (ins.settlementType === 'RATIO' ? `비율제 ${ins.ratioInstructor ?? 0}%` : `타임제 ${won(ins.perSessionFee ?? 0)}`) : '';
+            const set = (patch: Partial<Course>) => setEdit({ kind: 'course', v: { ...edit.v, ...patch } });
+            const st = edit.v.settlementType;
+            return (
+              <div className="field"><label>정산 방식</label>
+                <div className="seg">
+                  <button aria-pressed={!st} onClick={() => set({ settlementType: undefined, ratioInstructor: undefined, perSessionFee: undefined })}>강사 기본</button>
+                  <button aria-pressed={st === 'RATIO'} onClick={() => set({ settlementType: 'RATIO', ratioInstructor: edit.v.ratioInstructor ?? ins?.ratioInstructor ?? 50, perSessionFee: undefined })}>비율제</button>
+                  <button aria-pressed={st === 'PER_SESSION'} onClick={() => set({ settlementType: 'PER_SESSION', perSessionFee: edit.v.perSessionFee ?? ins?.perSessionFee ?? 0, ratioInstructor: undefined })}>타임제</button>
+                </div>
+                {!st && <p className="sub" style={{ margin: '6px 0 0' }}>강사 설정을 따라요{base && ` (지금 ${base})`}. 이 강사가 수업마다 방식이 다르면 여기서 이 수업만 바꿔 주세요.</p>}
+                {st === 'RATIO' && <div style={{ marginTop: 8 }}><label className="sub">강사 비율 (%) · 학원 {100 - (edit.v.ratioInstructor ?? 50)}%</label><input className="input" type="range" min={0} max={100} step={5} value={edit.v.ratioInstructor ?? 50} onChange={(e) => set({ ratioInstructor: Number(e.target.value) })} style={{ padding: 0, height: 32 }} /><div style={{ fontSize: 22, fontWeight: 800 }}>{100 - (edit.v.ratioInstructor ?? 50)} : {edit.v.ratioInstructor ?? 50}</div></div>}
+                {st === 'PER_SESSION' && <div style={{ marginTop: 8 }}><label className="sub">1타임 금액</label><input className="input" inputMode="numeric" value={edit.v.perSessionFee ?? 0} onChange={(e) => set({ perSessionFee: Number(e.target.value.replace(/\D/g, '')) })} /></div>}
+              </div>
+            );
+          })()}
           <ActiveField what="수업" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'course', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertCourse(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>

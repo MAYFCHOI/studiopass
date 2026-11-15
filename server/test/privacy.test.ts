@@ -86,7 +86,12 @@ describe('M4 erase', () => {
     expect(db.prepare('select payer_name, payer_phone, amount from payments where member_id=?').all(m.id)).toEqual([{ payer_name: null, payer_phone: '', amount: 180000 }]);
     expect(db.prepare('select count(*) n from attendances where member_id=?').get(m.id).n).toBe(1);
     expect(db.prepare('select count(*) n from passes where member_id=?').get(m.id).n).toBe(1);
-    expect(await (await req('/settlement?month=2026-10', {}, o)).json()).toEqual(before);
+    // 금액은 그대로, 상세의 이름만 '삭제된 회원'으로 바뀐다
+    const names = (ls: any[]) => ls.flatMap((l) => l.courses.flatMap((c: any) => c.days.flatMap((d: any) => d.people.map((p: any) => p.name))));
+    const strip = (ls: any[]) => JSON.stringify(ls, (k, v) => (k === 'name' && typeof v === 'string' && names(ls).includes(v) ? '' : v));
+    const after = await (await req('/settlement?month=2026-10', {}, o)).json();
+    expect(names(after)).not.toContain('홍길동'); expect(names(after)).toContain('삭제된 회원');
+    expect(strip(after)).toEqual(strip(before));
     expect(JSON.stringify(db.prepare('select * from audit_log').all())).not.toMatch(/홍길동|01012345678/);
     expect(audits('member.erase')).toEqual([expect.objectContaining({ entity_id: m.id, ip: '1.2.3.4' })]);
     // erased members cannot be scanned, edited, linked; their old link is gone

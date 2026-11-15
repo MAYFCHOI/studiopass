@@ -132,6 +132,14 @@ describe('owner upserts and staff', () => {
     const co = db.prepare('select id from courses limit 1').get();
     expect(await (await req(`/courses/${co.id}`, { method: 'PUT', body: { weekday: [3], startTime: '20:00' } }, o)).json()).toMatchObject({ weekday: [3], startTime: '20:00' });
     expect((await req(`/courses/${co.id}`, { method: 'PUT', body: { weekday: [1, 2] } }, o)).status).toBe(400);
+    // 수업별 정산 조건: 방식만 있고 값이 없으면 거절, null 이면 강사 기본으로 되돌린다. DESK 에게는 안 보인다
+    expect((await req(`/courses/${co.id}`, { method: 'PUT', body: { settlementType: 'PER_SESSION' } }, o)).status).toBe(400);
+    expect((await req(`/courses/${co.id}`, { method: 'PUT', body: { settlementType: 'RATIO', ratioInstructor: 120 } }, o)).status).toBe(400);
+    expect(await (await req(`/courses/${co.id}`, { method: 'PUT', body: { settlementType: 'PER_SESSION', perSessionFee: 40000 } }, o)).json()).toMatchObject({ settlementType: 'PER_SESSION', perSessionFee: 40000 });
+    const dc = (await (await req('/bootstrap', {}, await login('desk'))).json()).courses.find((x: any) => x.id === co.id);
+    expect(dc.settlementType).toBeUndefined(); expect(dc.perSessionFee).toBeUndefined();
+    const back = await (await req(`/courses/${co.id}`, { method: 'PUT', body: { settlementType: null, perSessionFee: null } }, o)).json();
+    expect(back.settlementType).toBeUndefined(); expect(back.perSessionFee).toBeUndefined();
     expect(await (await req('/tiers', { method: 'PUT', body: [{ name: 'B', minCount: 5 }, { name: 'A', minCount: 0 }] }, o)).json()).toEqual([{ name: 'A', minCount: 0 }, { name: 'B', minCount: 5 }]);
     expect((await req('/tiers', { method: 'PUT', body: [{ name: 'B', minCount: 5 }] }, o)).status).toBe(400);
     expect(db.prepare("select count(*) n from audit_log where action like 'product.%'").get().n).toBe(2);

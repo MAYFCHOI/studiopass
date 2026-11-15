@@ -42,6 +42,10 @@ export interface Course {
   durationMin: number;
   color?: string;
   active?: boolean;
+  // 수업별 정산 조건. 없으면 강사 기본(한 강사가 비율제·타임제 수업을 같이 할 때). DESK 에게는 없음
+  settlementType?: SettlementType;
+  ratioInstructor?: number;
+  perSessionFee?: number;
 }
 
 export interface Product {
@@ -137,6 +141,15 @@ export interface SettlementLine {
   instructorPay: number;
   academyPay: number;
   proTickets: number; // 전문반 자유수강 출석(기록만)
+  courses: SettlementCourse[]; // 수업별 계산. 합이 위 숫자
+}
+
+/** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
+export interface SettlementCourse {
+  courseId: string; name: string; weekday: number; startTime: string;
+  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean;
+  sessions: number; heads: number; revenue: number; instructorPay: number; proTickets: number; dropIns: number;
+  days: { date: string; heads: number; revenue: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN' }[] }[];
 }
 
 export type ImportResult = {

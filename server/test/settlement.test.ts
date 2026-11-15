@@ -31,3 +31,22 @@ it('drop-in payments count for the course instructor without a member', () => {
   expect(settle(db, '2026-10').reduce((n, l) => n + l.revenue, 0)).toBe(70000);
   expect(settle(db, '2026-11').find((l) => l.instructorId === ins)!.dropIns).toBe(1);
 });
+it('one instructor with a ratio class and a per-session class', () => {
+  const { db, member, pass } = makeDb();
+  const ins = (db.prepare("select instructor_id from courses where kind='GENERAL' limit 1").get() as any).instructor_id;
+  const [c1, c2] = db.prepare("select id from courses where kind='GENERAL' limit 2").all() as { id: string }[];
+  db.prepare('update courses set instructor_id=? where id in (?,?)').run(ins, c1.id, c2.id);
+  db.prepare("update instructors set settlement_type='RATIO', ratio_instructor=50 where id=?").run(ins);
+  db.prepare("update courses set settlement_type='PER_SESSION', per_session_fee=40000 where id=?").run(c2.id);
+  const a = member('가', '01000000001'); pass(a, { total: 8, remaining: 8 }); // 22500 / 회
+  attend(db, { memberId: a, courseId: c1.id, staffId: null, now: new Date('2026-10-19T10:30:00Z') });
+  attend(db, { memberId: a, courseId: c2.id, staffId: null, now: new Date('2026-10-20T10:30:00Z') });
+  attend(db, { memberId: a, courseId: c2.id, staffId: null, now: new Date('2026-10-21T10:30:00Z') });
+  const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
+  const r = line.courses.find((c) => c.courseId === c1.id)!, t = line.courses.find((c) => c.courseId === c2.id)!;
+  expect(r).toMatchObject({ type: 'RATIO', custom: false, sessions: 1, revenue: 22500, instructorPay: 11250 });
+  expect(t).toMatchObject({ type: 'PER_SESSION', custom: true, perSessionFee: 40000, sessions: 2, revenue: 45000, instructorPay: 80000 });
+  expect(t.days.map((d) => [d.date, d.heads, d.people[0].name, d.people[0].value])).toEqual([['2026-10-20', 1, '가', 22500], ['2026-10-21', 1, '가', 22500]]);
+  // 합계 = 수업별 합, 학원 몫은 비율제 수업에서만 강사 몫을 뺀다
+  expect(line).toMatchObject({ sessions: 3, revenue: 67500, instructorPay: 91250, academyPay: 67500 - 11250 });
+});

@@ -25,7 +25,7 @@ export function bootstrapRoutes(d: Deps) {
       alimtalkEnabled: alimtalkOn(d),
       members: (db.prepare('select * from members order by member_no').all() as any[]).map((m) => toMember(m, tierOf(tiers, counts.get(m.id) ?? 0))),
       instructors: db.prepare('select * from instructors order by name').all().map((x) => toInstructor(x, role)),
-      courses: db.prepare('select * from courses order by weekday, start_time, hall').all().map(toCourse),
+      courses: db.prepare('select * from courses order by weekday, start_time, hall').all().map((x) => toCourse(x, role)),
       products: db.prepare('select * from products order by rowid').all().map((x) => toProduct(x, role)),
       passes: db.prepare('select * from passes order by created_at').all().map((x) => toPass(x, role)),
       payments: db.prepare("select * from payments where paid_at >= ? or member_id is null or (pass_id is null and status='APPROVED') or review is not null order by paid_at desc").all(sinceIso).map((x) => toPayment(x, role)),

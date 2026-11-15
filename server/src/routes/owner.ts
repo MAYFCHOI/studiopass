@@ -47,15 +47,20 @@ export function ownerRoutes(d: Deps) {
     const b = await body(c); const id = c.req.param('id');
     if (!b) return bad(c);
     const cur = db.prepare('select * from courses where id=?').get(id) as any;
-    const v = { ...(cur ? toCourse(cur) : {}), ...b } as any;
+    const v = { ...(cur ? toCourse(cur, 'OWNER') : {}), ...b } as any;
     const wd = Array.isArray(v.weekday) ? v.weekday : [v.weekday];
     if (!str(v.name) || !maxLen(v.name, LIMITS.name) || !str(v.instructorId) || !['GENERAL', 'PRO'].includes(v.kind) || !['HUB', 'LAB'].includes(v.hall) || !optStr(v.level) || !optStr(v.note) || !maxLen(v.note, LIMITS.memo)
       || wd.length !== 1 || !int(wd[0]) || wd[0] > 6 || typeof v.startTime !== 'string' || !/^\d{2}:\d{2}$/.test(v.startTime) || !int(v.durationMin, 1) || !bool(v.active)) return bad(c);
+    // 정산 조건: 셋 다 null 이면 강사 기본. 방식을 정하면 그 방식의 값이 있어야 한다
+    const st = v.settlementType ?? null, ratio = v.ratioInstructor ?? null, fee = v.perSessionFee ?? null;
+    if (st !== null && !['RATIO', 'PER_SESSION'].includes(st)) return bad(c);
+    if (st === 'RATIO' && (!int(ratio) || ratio > 100)) return bad(c);
+    if (st === 'PER_SESSION' && !int(fee)) return bad(c);
     if (!db.prepare('select 1 from instructors where id=?').get(v.instructorId)) return bad(c);
-    db.prepare('insert into courses(id,hall,name,instructor_id,kind,level,note,weekday,start_time,duration_min,active) values(?,?,?,?,?,?,?,?,?,?,?) on conflict(id) do update set hall=excluded.hall, name=excluded.name, instructor_id=excluded.instructor_id, kind=excluded.kind, level=excluded.level, note=excluded.note, weekday=excluded.weekday, start_time=excluded.start_time, duration_min=excluded.duration_min, active=excluded.active')
-      .run(id, v.hall, v.name.trim(), v.instructorId, v.kind, v.level ?? null, v.note ?? null, wd[0], v.startTime, v.durationMin, v.active === false ? 0 : 1);
+    db.prepare('insert into courses(id,hall,name,instructor_id,kind,level,note,weekday,start_time,duration_min,active,settlement_type,ratio_instructor,per_session_fee) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict(id) do update set hall=excluded.hall, name=excluded.name, instructor_id=excluded.instructor_id, kind=excluded.kind, level=excluded.level, note=excluded.note, weekday=excluded.weekday, start_time=excluded.start_time, duration_min=excluded.duration_min, active=excluded.active, settlement_type=excluded.settlement_type, ratio_instructor=excluded.ratio_instructor, per_session_fee=excluded.per_session_fee')
+      .run(id, v.hall, v.name.trim(), v.instructorId, v.kind, v.level ?? null, v.note ?? null, wd[0], v.startTime, v.durationMin, v.active === false ? 0 : 1, st, st === 'RATIO' ? ratio : null, st === 'PER_SESSION' ? fee : null);
     audit(db, c.get('me').staffId, cur ? 'course.update' : 'course.create', 'course', id, b);
-    return c.json(toCourse(db.prepare('select * from courses where id=?').get(id)));
+    return c.json(toCourse(db.prepare('select * from courses where id=?').get(id), 'OWNER'));
   });
 
   r.put('/products/:id', async (c) => {

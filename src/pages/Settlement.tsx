@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
-import type { SettlementLine, SettlementDetail } from '../types';
+import type { SettlementLine, SettlementDetail, SettlementCourse } from '../types';
 import { won } from '../lib/util';
 import { downloadXlsx } from '../lib/excel';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
+import { Sheet } from '../components/Sheet';
 
 export default function Settlement() {
   const s = useStore();
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [sort, setSort] = useState<'pay' | 'name'>('pay');
+  const [open, setOpen] = useState<SettlementLine | null>(null);
   // 데모는 브라우저 안에서 계산, 서버 모드는 /settlement 결과. 출석·강사가 바뀌면 다시 받는다.
   const [raw, setRaw] = useState<SettlementLine[]>([]);
   // 못 받았으면 0원 대신 안내를 보이고 엑셀도 막는다. 달을 바꾸거나 다시 시도하면 다시 받는다.
@@ -44,18 +46,25 @@ export default function Settlement() {
     let d: SettlementDetail;
     try { d = (await s.settlementDetail(month)) ?? localDetail(); } catch { toast('상세 내역을 불러오지 못했어요. 다시 시도해 주세요'); return; }
     downloadXlsx(`정산_${month}.xlsx`, [
-      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: l.type === 'RATIO' ? `비율제 ${l.instructor.ratioInstructor ?? 0}%` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`, 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
+      { name: '강사별 정산', rows: lines.map((l) => ({ 강사: l.instructor.name, 정산방식: term(l), 수업횟수: l.sessions, 출석인원: l.heads, 출석매출: l.revenue, 강사정산액: l.instructorPay, 학원몫: l.academyPay, 전문반출석: l.proTickets })) },
+      { name: '수업별 정산', rows: lines.flatMap((l) => l.courses.map((c) => ({ 강사: l.instructor.name, 수업: courseLabel(c), 정산방식: courseTerm(c), 수업횟수: c.sessions, 출석인원: c.heads, 출석매출: c.revenue, 강사정산액: c.instructorPay, 계산: formula(c) }))) },
       { name: '출석 상세', rows: d.attendances.map((a) => ({ 일시: dayjs(a.attendedAt).format('YYYY-MM-DD HH:mm'), 회원: a.member ?? '', 수업: a.course ?? '', 강사: a.instructor ?? '', 수강권: a.passKind === 'PERIOD' ? '전문반 월정액' : '회차권', 회당금액: a.value })) },
       { name: '결제', rows: d.payments.map((p) => ({ 일시: dayjs(p.paidAt).format('YYYY-MM-DD HH:mm'), 회원: p.member ?? '연결 안 됨', 결제자: p.payerName ?? '', 상품: p.productName, 금액: p.amount, 상태: p.status === 'APPROVED' ? '승인' : '취소', 출처: p.source === 'KIOSK' ? '키오스크' : '수동', 승인번호: p.externalId ?? '' })) },
     ]);
     toast('엑셀을 저장했어요');
   };
 
-  const academy = revenue - lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay, 0);
+  const academy = lines.reduce((n, l) => n + l.academyPay, 0);
   const sessions = lines.reduce((n, l) => n + l.sessions, 0);
   const shown = lines.filter((l) => l.sessions > 0 || l.proTickets > 0);
   const idle = lines.length - shown.length;
-  const term = (l: SettlementLine) => (l.type === 'RATIO' ? `비율제 ${100 - (l.instructor.ratioInstructor ?? 0)}:${l.instructor.ratioInstructor ?? 0}` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`);
+  const term = (l: SettlementLine) => {
+    // 수업마다 조건이 다르면 한 줄로 못 적는다. 상세에서 수업별로 본다
+    const kinds = new Set(l.courses.map(courseTerm));
+    if (kinds.size > 1) return '수업별로 다름';
+    if (kinds.size === 1) return [...kinds][0];
+    return l.type === 'RATIO' ? `비율제 ${100 - (l.instructor.ratioInstructor ?? 0)}:${l.instructor.ratioInstructor ?? 0}` : `타임제 ${won(l.instructor.perSessionFee ?? 0)}`;
+  };
 
   return (
     <div className="settle-page">
@@ -88,17 +97,18 @@ export default function Settlement() {
           <span role="columnheader">강사</span><span role="columnheader">정산 방식</span><span role="columnheader">수업</span><span role="columnheader">출석</span><span role="columnheader">매출</span><span role="columnheader">학원 몫</span><span role="columnheader">강사 지급</span>
         </div>
         {shown.map((l) => (
-          <div className="lg-row" role="row" key={l.instructor.id}>
+          <div className="lg-row lg-open" role="row" key={l.instructor.id} tabIndex={0} aria-label={`${l.instructor.name} 상세 보기`} onClick={() => setOpen(l)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(l); } }}>
             <span className="lg-name" role="cell">{l.instructor.name}{l.proTickets > 0 && <small>전문반 {l.proTickets}회는 정산 제외</small>}</span>
             <span className="lg-term" role="cell">{term(l)}</span>
             <span className="num" role="cell" data-k="수업">{l.sessions}타임</span>
             <span className="num" role="cell" data-k="출석">{l.heads}명</span>
             <span className="num" role="cell" data-k="매출">{won(l.revenue)}</span>
-            <span className="num" role="cell" data-k="학원 몫">{l.type === 'RATIO' ? won(l.academyPay) : won(l.revenue)}</span>
+            <span className="num" role="cell" data-k="학원 몫">{won(l.academyPay)}</span>
             <span className="lg-pay num" role="cell">{won(l.instructorPay)}</span>
           </div>
         ))}
         {idle > 0 && <p className="sub lg-idle">이달 출석이 없는 강사 {idle}명은 뺐어요.</p>}
+        {shown.length > 0 && <p className="sub lg-idle">강사 줄을 누르면 수업별·날짜별 계산이 나와요.</p>}
       </div>}
 
       <div className="note">정산 계산 기준
@@ -106,8 +116,44 @@ export default function Settlement() {
           <li>비율제: 출석 1회 가치 = 수강권 가격 ÷ 총 회차. 이달 출석분만 더해 강사 비율로 나눠요.</li>
           <li>타임제: 출석이 1명 이상 있던 수업 1회 = 1타임. 수강권 매출은 전액 학원.</li>
           <li>전문반 월정액 출석은 금액으로 바꾸지 않고 강사별 횟수만 세요.</li>
+          <li>수업에 정산 방식을 따로 정하면(설정 → 수업) 그 수업만 그 방식으로 계산하고 강사별로 더해요.</li>
         </ul>
       </div>
+      {open && <InstructorDetail line={open} month={label.format('YYYY년 M월')} onClose={() => setOpen(null)} />}
     </div>
+  );
+}
+
+const DAY = '일월화수목금토';
+const courseLabel = (c: SettlementCourse) => `${DAY[c.weekday]} ${c.startTime} ${c.name}`;
+const courseTerm = (c: SettlementCourse) => (c.type === 'RATIO' ? `비율제 ${c.ratioInstructor}%` : `타임제 ${won(c.perSessionFee)}`);
+const formula = (c: SettlementCourse) => (c.type === 'RATIO'
+  ? `매출 ${won(c.revenue)} × ${c.ratioInstructor}% = ${won(c.instructorPay)}`
+  : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(c.instructorPay)} (매출 ${won(c.revenue)}은 학원)`);
+
+/** 강사 한 명의 그 달 계산: 수업별 조건과 식, 날짜별 출석한 사람과 1회 금액. 합계가 정산 화면의 강사 지급과 같다 */
+function InstructorDetail({ line, month, onClose }: { line: SettlementLine; month: string; onClose: () => void }) {
+  const kind = (k: string) => (k === 'PERIOD' ? '전문반' : k === 'DROP_IN' ? '원데이' : '');
+  return (
+    <Sheet onClose={onClose} title={`${line.instructor.name} · ${month}`}>
+      <div className="sd-total"><span>강사 지급</span><b className="num">{won(line.instructorPay)}</b></div>
+      <p className="sub" style={{ margin: '0 0 12px' }}>수업 {line.sessions}타임 · 출석 {line.heads}명 · 매출 {won(line.revenue)}</p>
+      {line.courses.length === 0 && <p className="sub">이달 출석이 없어요.</p>}
+      {line.courses.map((c) => (
+        <section className="sd-course" key={c.courseId}>
+          <div className="sd-head"><b>{courseLabel(c)}</b><span>{courseTerm(c)}{c.custom ? ' · 이 수업만' : ''}</span></div>
+          <div className="sd-formula num">{formula(c)}</div>
+          {c.proTickets > 0 && <p className="sub" style={{ margin: '0 0 6px' }}>전문반 출석 {c.proTickets}회는 금액 0원으로 셌어요.</p>}
+          <div className="sd-days">
+            {c.days.map((d) => (
+              <div className="sd-day" key={d.date}>
+                <div className="sd-date"><b>{dayjs(d.date).format('M/D')}</b><span>{d.heads}명 · {won(d.revenue)}</span></div>
+                <div className="sd-people">{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>} <span className="num">{won(p.value)}</span></span>)}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </Sheet>
   );
 }
