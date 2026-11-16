@@ -14,7 +14,8 @@ export interface Member {
   phone: string; // digits only
   createdAt: string; // ISO
   memo?: string;
-  tier?: { name: string; level: number; count: number }; // 서버가 계산
+  tier?: { name: string; level: number; count: number; manual?: boolean }; // 서버가 계산. manual = 원장이 올린 등급
+  tierFloor?: number; // 원장이 정한 최소 등급(1부터)
   erased?: boolean; // 개인정보 파기됨(이름 '삭제된 회원', 전화·메모 없음). 출석·결제 기록만 남는다
 }
 
@@ -98,6 +99,7 @@ export interface Pass {
   price?: number; // DESK 에게는 없음
   extendedDays?: number; // 유효기간 연장(수강권당 1번). validTo 는 이미 늘어난 날
   extendedAt?: string;
+  adjustedUsed?: number; // 앱 쓰기 전에 쓴 횟수(남은 횟수 맞추기). 출석 기록은 없다
 }
 
 export interface Attendance {
@@ -215,6 +217,12 @@ export interface Actions {
   extendPass(passId: string, days: number): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 원장만: 연장 되돌리기(끝나는 날 원래대로, 다시 1번 가능) */
   undoExtendPass(passId: string): Promise<void>;
+  /** 횟수권 남은 횟수 맞추기(앱 쓰기 전에 쓴 횟수). 0 ~ remaining + adjustedUsed. 출석 기록은 만들지 않는다 */
+  adjustPass(passId: string, remaining: number): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** 원장만: 등급 직접 올리기(1부터, null = 출석 기준) */
+  setMemberTier(memberId: string, level: number | null): Promise<void>;
+  /** 원장만: 등급 기준 전체 바꾸기(첫 등급은 0회) */
+  saveTiers(tiers: Tier[]): Promise<void>;
   /** 회원 상세용 전체 기록(서버: bootstrap 의 62일 창 밖까지) */
   memberHistory(memberId: string): Promise<MemberHistory>;
   cancelPayment(paymentId: string): Promise<{ ok: true } | { ok: false; used: number }>;

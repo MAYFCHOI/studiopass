@@ -41,6 +41,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [showAllFor, setShowAllFor] = useState<string | null>(null); // 출석 기록 전부 보기(회원별)
   const [ext, setExt] = useState<{ passId: string; days: number } | null>(null); // 유효기간 연장 중인 수강권
   const [extBusy, setExtBusy] = useState(false);
+  const [adj, setAdj] = useState<{ passId: string; remaining: number } | null>(null); // 남은 횟수 맞추는 중인 수강권
   const memberHistory = s.memberHistory;
   useEffect(() => {
     if (!memberId) return;
@@ -125,6 +126,17 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>}
         {!m.erased && !IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} disabled={busy} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+        {!m.erased && m.tier && (s.tiers?.length ?? 0) > 0 && (
+          <div className="tier-row">
+            <div className="main"><div className="t">등급 {m.tier.name}</div><div className="d">출석 {m.tier.count}회{m.tier.manual ? ' · 원장이 올린 등급' : m.tierFloor ? ` · 원장이 ${s.tiers?.[m.tierFloor - 1]?.name ?? ''} 이상으로 정함` : ''}</div></div>
+            {owner && (
+              <select className="input" aria-label="등급 직접 정하기" value={m.tierFloor ?? ''} onChange={(e) => { const v = e.target.value ? Number(e.target.value) : null; void s.setMemberTier(m.id, v).then(() => toast(v ? '등급을 정했어요' : '출석 기준으로 돌렸어요'), () => {}); }}>
+                <option value="">출석 기준</option>
+                {(s.tiers ?? []).map((t, i) => i > 0 && <option key={t.name} value={i + 1}>{t.name} 이상</option>)}
+              </select>
+            )}
+          </div>
+        )}
 
         <h2>수강권</h2>
         {passes.length === 0 ? <p className="sub">아직 수강권이 없어요. 결제가 들어오면 자동으로 생겨요.</p> : (
@@ -132,6 +144,17 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
             {passes.map((p) => {
               const expired = p.validTo < t; const done = p.remaining <= 0;
               const open = ext?.passId === p.id;
+              const adjOpen = adj?.passId === p.id;
+              const adjMax = p.remaining + (p.adjustedUsed ?? 0); // 앱 출석을 빼고 남길 수 있는 최대
+              const adjust = async () => {
+                if (!adj || extBusy) return;
+                setExtBusy(true);
+                try {
+                  const r = await s.adjustPass(p.id, adj.remaining);
+                  if (r.ok) { toast(`남은 횟수를 ${adj.remaining}회로 맞췄어요`); setAdj(null); }
+                  else toast(r.error === 'TOO_MANY' ? '앱에서 출석한 횟수보다 많이 남길 수 없어요' : '맞추지 못했어요. 다시 시도해 주세요');
+                } catch { /* 안내는 스토어가 띄운다 */ } finally { setExtBusy(false); }
+              };
               const extend = async () => {
                 if (!ext || extBusy) return;
                 setExtBusy(true);
@@ -144,13 +167,24 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
               return (
                 <div className="pass-item" key={p.id}>
                   <div className="row">
-                    <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{p.extendedDays ? ` · ${p.extendedDays}일 연장함` : ''}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
+                    <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{p.extendedDays ? ` · ${p.extendedDays}일 연장함` : ''}{p.adjustedUsed ? ` · 앱 전 ${p.adjustedUsed}회 사용` : ''}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
                     <div className="right inline"><b className="num">{p.remaining}</b> / {p.totalCount}</div>
                   </div>
-                  {!m.erased && !done && !open && (
+                  {!m.erased && !open && !adjOpen && (!done || !!p.adjustedUsed) && (
                     <div className="pass-actions">
-                      {!p.extendedDays && <button className="btn sm ghost" onClick={() => setExt({ passId: p.id, days: 7 })}>기간 연장</button>}
-                      {!!p.extendedDays && owner && <button className="btn sm ghost" onClick={() => { void s.undoExtendPass(p.id).then(() => toast('연장을 되돌렸어요'), () => {}); }}>연장 되돌리기</button>}
+                      {p.kind === 'COUNT' && <button className="btn sm ghost" onClick={() => { setExt(null); setAdj({ passId: p.id, remaining: p.remaining }); }}>횟수 맞추기</button>}
+                      {!done && !p.extendedDays && <button className="btn sm ghost" onClick={() => { setAdj(null); setExt({ passId: p.id, days: 7 }); }}>기간 연장</button>}
+                      {!done && !!p.extendedDays && owner && <button className="btn sm ghost" onClick={() => { void s.undoExtendPass(p.id).then(() => toast('연장을 되돌렸어요'), () => {}); }}>연장 되돌리기</button>}
+                    </div>
+                  )}
+                  {adjOpen && (
+                    <div className="pass-extend">
+                      <label className="sub">지금 남은 횟수 <input className="input" inputMode="numeric" value={adj.remaining} onChange={(e) => setAdj({ passId: p.id, remaining: Math.min(adjMax, Number(e.target.value.replace(/\D/g, '')) || 0) })} style={{ width: 80, display: 'inline-block', marginLeft: 6 }} /> / {p.totalCount}회</label>
+                      <p className="sub" style={{ margin: 0 }}>{adjMax - adj.remaining > 0 ? <>앱을 쓰기 전에 <b>{adjMax - adj.remaining}회</b> 쓴 걸로 맞춰요. </> : ''}출석 기록은 생기지 않아서 강사 정산과 등급은 바뀌지 않아요.</p>
+                      <div className="pass-actions">
+                        <button className="btn sm" onClick={() => setAdj(null)}>닫기</button>
+                        <button className="btn sm primary" disabled={extBusy || adj.remaining === p.remaining} onClick={() => { void adjust(); }}>{adj.remaining}회 남기기</button>
+                      </div>
                     </div>
                   )}
                   {open && (

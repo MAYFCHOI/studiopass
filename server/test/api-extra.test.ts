@@ -348,6 +348,56 @@ describe('pass extension', () => {
   });
 });
 
+describe('pass count adjust', () => {
+  it('desk sets the remaining count for classes used before the app, bounded by in-app attendance', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('a1', '01033334444')] } }, o);
+    const m = await (await req('/members', { method: 'POST', body: { name: '조정', phone: '01033334444' } }, d)).json();
+    const pass = (await (await req('/bootstrap', {}, o)).json()).passes.find((p: any) => p.memberId === m.id);
+    expect(pass).toMatchObject({ totalCount: 4, remaining: 4 });
+    const co = db.prepare('select id, instructor_id from courses limit 1').get() as any;
+    db.prepare("insert into attendances(id,member_id,pass_id,course_id,instructor_id,attended_on,attended_at) values('at1',?,?,?,?,'2026-10-19','2026-10-19T10:00:00Z')").run(m.id, pass.id, co.id, co.instructor_id);
+    db.prepare('update passes set remaining=3 where id=?').run(pass.id);
+    expect((await req(`/passes/${pass.id}/adjust`, { method: 'POST', body: { remaining: -1 } }, d)).status).toBe(400);
+    const over = await req(`/passes/${pass.id}/adjust`, { method: 'POST', body: { remaining: 4 } }, d);
+    expect(over.status).toBe(409); expect(await over.json()).toEqual({ error: 'TOO_MANY', max: 3 });
+    const a = await (await req(`/passes/${pass.id}/adjust`, { method: 'POST', body: { remaining: 1 } }, d)).json();
+    expect(a).toMatchObject({ remaining: 1, adjustedUsed: 2 });
+    expect(db.prepare("select count(*) n from attendances where pass_id=?").get(pass.id)).toEqual({ n: 1 });
+    await req('/attendances/at1/cancel', { method: 'POST' }, d);
+    expect((db.prepare('select remaining from passes where id=?').get(pass.id) as any).remaining).toBe(2);
+    const back = await (await req(`/passes/${pass.id}/adjust`, { method: 'POST', body: { remaining: 4 } }, d)).json();
+    expect(back.remaining).toBe(4); expect(back.adjustedUsed).toBeUndefined();
+    expect(db.prepare("select count(*) n from audit_log where action='pass.adjust'").get()).toEqual({ n: 2 });
+    await req(`/members/${m.id}/erase`, { method: 'POST' }, o);
+    expect((await req(`/passes/${pass.id}/adjust`, { method: 'POST', body: { remaining: 1 } }, d)).status).toBe(409);
+  });
+});
+
+describe('tier ladder and manual tier', () => {
+  it('owner edits the ladder and raises a member, attendance can still lift them higher', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('g1', '01055556666')] } }, o);
+    const m = await (await req('/members', { method: 'POST', body: { name: '등급', phone: '01055556666' } }, d)).json();
+    const pid = (db.prepare('select id from passes where member_id=?').get(m.id) as any).id;
+    expect(m.tier).toMatchObject({ level: 1, count: 0 });
+    expect((await req('/tiers', { method: 'PUT', body: [{ name: 'A', minCount: 0 }, { name: 'B', minCount: 1 }, { name: 'C', minCount: 5 }] }, d)).status).toBe(403);
+    expect((await req('/tiers', { method: 'PUT', body: [{ name: 'A', minCount: 0 }, { name: 'B', minCount: 1 }, { name: 'C', minCount: 5 }] }, o)).status).toBe(200);
+    expect((await req(`/members/${m.id}/tier`, { method: 'POST', body: { level: 2 } }, d)).status).toBe(403);
+    expect((await req(`/members/${m.id}/tier`, { method: 'POST', body: { level: 4 } }, o)).status).toBe(400);
+    const up = await (await req(`/members/${m.id}/tier`, { method: 'POST', body: { level: 2 } }, o)).json();
+    expect(up).toMatchObject({ tierFloor: 2, tier: { name: 'B', level: 2, manual: true } });
+    const boot = (await (await req('/bootstrap', {}, d)).json()).members.find((x: any) => x.id === m.id);
+    expect(boot.tier).toMatchObject({ name: 'B', manual: true });
+    const co = db.prepare('select id, instructor_id from courses limit 1').get() as any;
+    for (let i = 0; i < 5; i++) db.prepare("insert into attendances(id,member_id,pass_id,course_id,instructor_id,attended_on,attended_at) values(?,?,?,?,?,?,'2026-10-01T10:00:00Z')").run('t' + i, m.id, pid, co.id, co.instructor_id, '2026-10-0' + (i + 1));
+    expect((await (await req('/bootstrap', {}, d)).json()).members.find((x: any) => x.id === m.id).tier).toEqual({ name: 'C', level: 3, count: 5 });
+    const reset = await (await req(`/members/${m.id}/tier`, { method: 'POST', body: { level: null } }, o)).json();
+    expect(reset.tierFloor).toBeUndefined();
+    expect(db.prepare("select count(*) n from audit_log where action='member.tier'").get()).toEqual({ n: 2 });
+  });
+});
+
 describe('drop-in class pick', () => {
   it('sets and clears the class on a drop-in payment, refuses non drop-ins and unknown classes', async () => {
     const o = await login('owner'); const d = await login('desk');

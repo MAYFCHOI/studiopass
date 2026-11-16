@@ -3,12 +3,18 @@ export type Role = 'OWNER' | 'DESK';
 const opt = <T>(v: T | null | undefined) => (v === null ? undefined : v);
 const owner = (role: Role) => role === 'OWNER';
 export type TierRow = { name: string; min_count: number };
-export function tierOf(tiers: TierRow[], count: number) {
+/** 출석 횟수로 정한 등급. floor(원장이 올린 등급, 1부터)가 더 높으면 그 등급이고 manual 이 붙는다. */
+export function tierIndex(tiers: { min_count: number }[], count: number, floor?: number | null) {
   let idx = 0;
   tiers.forEach((t, i) => { if (count >= t.min_count) idx = i; });
-  return { name: tiers[idx]?.name ?? '', level: idx + 1, count };
+  const f = floor ? Math.min(floor, tiers.length) - 1 : -1;
+  return f > idx ? { idx: f, manual: true } : { idx, manual: false };
 }
-export const toMember = (r: any, tier: { name: string; level: number; count: number }) => ({ id: r.id, memberNo: r.member_no, name: r.name, phone: r.phone, memo: opt(r.memo), createdAt: r.created_at, tier, ...(r.erased_at ? { erased: true } : {}) });
+export function tierOf(tiers: TierRow[], count: number, floor?: number | null) {
+  const { idx, manual } = tierIndex(tiers, count, floor);
+  return { name: tiers[idx]?.name ?? '', level: idx + 1, count, ...(manual ? { manual: true } : {}) };
+}
+export const toMember = (r: any, tier: { name: string; level: number; count: number; manual?: boolean }) => ({ id: r.id, memberNo: r.member_no, name: r.name, phone: r.phone, memo: opt(r.memo), createdAt: r.created_at, tier, ...(r.tier_floor ? { tierFloor: r.tier_floor } : {}), ...(r.erased_at ? { erased: true } : {}) });
 export const toInstructor = (r: any, role: Role) => ({
   id: r.id, name: r.name, crew: r.genres, settlementType: r.settlement_type, active: !!r.active,
   ...(owner(role) ? { ratioInstructor: r.ratio_instructor, perSessionFee: r.per_session_fee } : {}),
@@ -23,7 +29,7 @@ export const toProduct = (r: any, role: Role) => ({
   ...(owner(role) ? { price: r.price } : {}),
 });
 export const toPass = (r: any, role: Role) => ({
-  id: r.id, memberId: r.member_id, productId: r.product_id, courseId: opt(r.course_id), kind: r.kind, totalCount: r.total_count, remaining: r.remaining, validFrom: r.valid_from, validTo: r.valid_to, paymentId: opt(r.payment_id), extendedDays: opt(r.extended_days), extendedAt: opt(r.extended_at),
+  id: r.id, memberId: r.member_id, productId: r.product_id, courseId: opt(r.course_id), kind: r.kind, totalCount: r.total_count, remaining: r.remaining, validFrom: r.valid_from, validTo: r.valid_to, paymentId: opt(r.payment_id), extendedDays: opt(r.extended_days), extendedAt: opt(r.extended_at), adjustedUsed: opt(r.adjusted_used),
   ...(owner(role) ? { price: r.price } : {}),
 });
 export const toPayment = (r: any, role: Role) => ({

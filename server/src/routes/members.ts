@@ -19,7 +19,7 @@ const memberOut = (db: Db, id: string) => {
   const m = db.prepare('select * from members where id=?').get(id) as any;
   if (!m) return null;
   const t = tierFor(db, id);
-  return toMember(m, { name: t.name, level: t.level, count: t.count });
+  return toMember(m, { name: t.name, level: t.level, count: t.count, ...(t.manual ? { manual: true } : {}) });
 };
 
 export function memberRoutes(d: Deps) {
@@ -137,6 +137,39 @@ export function memberRoutes(d: Deps) {
     db.prepare('update passes set valid_to=?, extended_days=null, extended_at=null, extended_by=null where id=?').run(validTo, id);
     audit(db, c.get('me').staffId, 'pass.extend.undo', 'pass', id, { from: p.valid_to, to: validTo });
     return c.json(passOut(c, id));
+  });
+
+  /** 앱을 쓰기 전에 쓴 횟수 맞추기: 남은 횟수를 직접 정한다. 출석 기록은 만들지 않으니 정산·등급은 그대로다.
+   *  앱에서 쓴 횟수(취소 안 된 출석)보다 많이 남길 수는 없다. 다시 맞추면 덮어쓴다. 데스크도 한다. */
+  r.post('/passes/:id/adjust', async (c) => {
+    const id = c.req.param('id'); const b = await body(c);
+    const remaining = b?.remaining;
+    if (!Number.isInteger(remaining) || remaining < 0) return bad(c);
+    const p = db.prepare('select p.*, m.erased_at from passes p join members m on m.id=p.member_id where p.id=?').get(id) as any;
+    if (!p) return notFound(c);
+    if (p.erased_at) return erased(c);
+    if (p.kind !== 'COUNT') return bad(c);
+    const inApp = (db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(id) as { n: number }).n;
+    const max = p.total_count - inApp;
+    if (remaining > max) return c.json({ error: 'TOO_MANY', max }, 409);
+    const used = max - remaining;
+    db.prepare('update passes set remaining=?, adjusted_used=?, adjusted_at=? where id=?').run(remaining, used || null, used ? nowIso() : null, id);
+    audit(db, c.get('me').staffId, 'pass.adjust', 'pass', id, { from: p.remaining, to: remaining, offline: used });
+    return c.json(passOut(c, id));
+  });
+
+  /** 원장만: 등급 직접 올리기. level 은 1부터(등급 표 순서), null 이면 출석 기준으로 돌아간다. 출석으로 더 오르면 그 등급이 된다. */
+  r.post('/members/:id/tier', ownerOnly, async (c) => {
+    const id = c.req.param('id'); const b = await body(c);
+    const level = b?.level ?? null;
+    const n = (db.prepare('select count(*) n from tiers').get() as { n: number }).n;
+    if (level !== null && (!Number.isInteger(level) || level < 1 || level > n)) return bad(c);
+    const m = db.prepare('select erased_at, tier_floor from members where id=?').get(id) as { erased_at: string | null; tier_floor: number | null } | undefined;
+    if (!m) return notFound(c);
+    if (m.erased_at) return erased(c);
+    db.prepare('update members set tier_floor=? where id=?').run(level, id);
+    audit(db, c.get('me').staffId, 'member.tier', 'member', id, { from: m.tier_floor, to: level });
+    return c.json(memberOut(db, id));
   });
 
   // channel 없음/SMS_LINK: 화면이 문자 앱을 연 기록만 남긴다. ALIMTALK: 서버가 새 링크를 발급해 바로 보낸다.

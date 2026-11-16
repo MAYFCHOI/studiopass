@@ -484,3 +484,10 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .pass-item > .row { border-bottom: 0; }
 .pass-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 0 10px; }
 .pass-extend { display: grid; gap: 10px; padding: 4px 0 12px; }
+.tier-row { display: flex; gap: 12px; align-items: center; padding: 12px 0; margin-top: 8px; border-bottom: 1px solid var(--line); }
+.tier-row .main { flex: 1; min-width: 0; }
+.tier-row .t { font-weight: 600; }
+.tier-row .d { color: var(--mute); font-size: 13px; }
+.tier-row select { width: auto; max-width: 50%; }
+.tier-edit { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tier-edit > .input { flex: 1; min-width: 120px; }

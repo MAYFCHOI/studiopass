@@ -237,6 +237,16 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           undoExtendPass: async (passId) => {
             set({ passes: get().passes.map((x) => (x.id === passId && x.extendedDays ? { ...x, validTo: dayjs(x.validTo).subtract(x.extendedDays, 'day').format('YYYY-MM-DD'), extendedDays: undefined, extendedAt: undefined } : x)) });
           },
+          adjustPass: async (passId, remaining) => {
+            const p = get().passes.find((x) => x.id === passId);
+            if (!p) return { ok: false, error: 'NOT_FOUND' };
+            const max = p.remaining + (p.adjustedUsed ?? 0);
+            if (remaining > max) return { ok: false, error: 'TOO_MANY' };
+            set({ passes: get().passes.map((x) => (x.id === passId ? { ...x, remaining, adjustedUsed: max - remaining || undefined } : x)) });
+            return { ok: true };
+          },
+          setMemberTier: async (memberId, level) => { set({ members: get().members.map((m) => (m.id === memberId ? { ...m, tierFloor: level ?? undefined } : m)) }); },
+          saveTiers: async (tiers) => { set({ tiers: [...tiers].sort((a, b) => a.minCount - b.minCount) }); },
           memberHistory: async (memberId) => {
             const s = get();
             return { attendances: s.attendances.filter((a) => a.memberId === memberId), payments: s.payments.filter((p) => p.memberId === memberId), passes: s.passes.filter((p) => p.memberId === memberId) };

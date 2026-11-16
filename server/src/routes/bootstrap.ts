@@ -23,7 +23,7 @@ export function bootstrapRoutes(d: Deps) {
       studioName: setting('studio_name') ?? '',
       needsRealPrices: setting('needs_real_prices') === '1',
       alimtalkEnabled: alimtalkOn(d),
-      members: (db.prepare('select * from members order by member_no').all() as any[]).map((m) => toMember(m, tierOf(tiers, counts.get(m.id) ?? 0))),
+      members: (db.prepare('select * from members order by member_no').all() as any[]).map((m) => toMember(m, tierOf(tiers, counts.get(m.id) ?? 0, m.tier_floor))),
       instructors: db.prepare('select * from instructors order by name').all().map((x) => toInstructor(x, role)),
       courses: db.prepare('select * from courses order by weekday, start_time, hall').all().map((x) => toCourse(x, role)),
       products: db.prepare('select * from products order by rowid').all().map((x) => toProduct(x, role)),

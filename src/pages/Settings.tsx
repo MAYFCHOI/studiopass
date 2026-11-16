@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { won, maybeWon, WEEKDAYS, newId } from '../lib/util';
 import { Sheet } from '../components/Sheet';
 import { toast } from '../components/Toast';
-import type { Instructor, Course, Product, Hall } from '../types';
+import type { Instructor, Course, Product, Hall, Tier } from '../types';
 import { Timetable } from '../components/Timetable';
 import { courseTitle, courseMeta } from '../lib/labels';
 import { IS_DEMO } from '../lib/mode';
@@ -18,6 +18,45 @@ function ActiveField({ active, onChange, what }: { active: boolean; onChange: (v
   );
 }
 const off = (x: { active?: boolean }) => x.active === false;
+
+/** 등급 기준: 누적 출석 몇 회부터 그 등급인지. 첫 등급은 0회(처음 온 회원). 원장은 회원 화면에서 등급을 직접 올릴 수도 있다. */
+function TierEditor() {
+  const s = useStore();
+  const [draft, setDraft] = useState<Tier[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const tiers = draft ?? s.tiers ?? [];
+  const set = (i: number, v: Partial<Tier>) => setDraft(tiers.map((t, j) => (j === i ? { ...t, ...v } : t)));
+  const counts = tiers.map((t) => t.minCount);
+  const problem = tiers.some((t) => !t.name.trim()) ? '등급 이름을 모두 적어 주세요'
+    : counts.some((c, i) => i > 0 && !(c > counts[i - 1])) ? '아래 등급일수록 출석 횟수가 커야 해요' : '';
+  const save = async () => {
+    if (!draft || problem || busy) return;
+    setBusy(true);
+    try { await s.saveTiers(draft.map((t, i) => ({ name: t.name.trim(), minCount: i === 0 ? 0 : t.minCount }))); setDraft(null); toast('등급 기준을 저장했어요'); } catch { /* 스토어가 알린다 */ } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <h2>등급 기준</h2>
+      <p className="sub">누적 출석이 이 횟수가 되면 그 등급으로 올라가요. 회원 페이지에 보이는 등급이에요. 특정 회원은 회원 화면에서 직접 올릴 수 있어요.</p>
+      <div className="list">
+        {tiers.map((t, i) => (
+          <div className="row tier-edit" key={i}>
+            <input className="input" aria-label={`${i + 1}번째 등급 이름`} value={t.name} onChange={(e) => set(i, { name: e.target.value })} />
+            {i === 0 ? <span className="sub">처음부터</span>
+              : <label className="sub">출석 <input className="input" inputMode="numeric" aria-label={`${t.name} 출석 횟수`} value={t.minCount} onChange={(e) => set(i, { minCount: Number(e.target.value.replace(/\D/g, '')) || 0 })} style={{ width: 64, display: 'inline-block' }} />회부터</label>}
+            {i > 0 && i === tiers.length - 1 && <button className="btn sm ghost" onClick={() => setDraft(tiers.slice(0, -1))}>빼기</button>}
+          </div>
+        ))}
+      </div>
+      <div className="btn-row">
+        <button className="btn sm" onClick={() => setDraft([...tiers, { name: '', minCount: (tiers[tiers.length - 1]?.minCount ?? 0) + 10 }])}>등급 추가</button>
+        {draft && <button className="btn sm" onClick={() => setDraft(null)}>되돌리기</button>}
+        {draft && <button className="btn sm primary" disabled={!!problem || busy} onClick={() => { void save(); }}>{busy ? '저장 중…' : '저장'}</button>}
+      </div>
+      {draft && problem && <p className="sub" role="alert">{problem}</p>}
+    </>
+  );
+}
 
 export default function Settings() {
   const s = useStore();
@@ -68,6 +107,8 @@ export default function Settings() {
         ))}
       </div>
       <button className="btn sm" style={{ marginTop: 10 }} onClick={() => setEdit({ kind: 'product', v: { id: newId(), name: '', passKind: 'COUNT', count: 8, periodDays: 60, price: 180000 } })}>상품 추가</button>
+
+      <TierEditor />
 
       <h2>이 프로토타입이 가정한 것</h2>
       <div className="note">

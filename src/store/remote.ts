@@ -180,6 +180,12 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         return r.ok ? { ok: true } : { ok: false, error: r.error };
       },
       undoExtendPass: (passId) => post(`/passes/${passId}/extend/undo`).then(() => {}),
+      adjustPass: async (passId, remaining) => {
+        const r = await mutate409(`/passes/${passId}/adjust`, { method: 'POST', body: { remaining } });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+      setMemberTier: (memberId, level) => post(`/members/${memberId}/tier`, { level }).then(() => {}),
+      saveTiers: (tiers) => put('/tiers', tiers),
       memberHistory: (memberId) => call<MemberHistory>(`/members/${memberId}/history`, { timeoutMs: 15000 }),
       upsertInstructor: (i) => put(`/instructors/${i.id}`, i),
       // 서버 PUT 은 빠진 키를 예전 값으로 채우므로, 비운 선택 항목은 undefined(JSON 에서 빠짐) 대신 null 로 보낸다.
