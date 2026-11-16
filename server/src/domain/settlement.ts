@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { kstDate } from '../util.js';
-import { findProduct } from './payments.js';
+import { findProduct, comboParts, comboAmounts } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
 export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN'; bonus?: number };
 export type DayLine = { date: string; heads: number; revenue: number; people: Person[] };
@@ -20,7 +20,14 @@ function dropIns(db: Db, month: string): DropIn[] {
     where p.drop_in=1 and p.status='APPROVED' and p.pass_id is null and p.paid_at >= ? and p.paid_at < ?`).all(from, to) as any[];
   const insOf = db.prepare('select instructor_id from courses where id=?');
   const byName = db.prepare('select course_id from products where name=?'); // 쉬는 상품도(지난 달 정산)
-  return rows.map((r) => {
+  return rows.flatMap((r) => {
+    const insFor = (id: string | null) => (id ? (insOf.get(id) as { instructor_id: string } | undefined)?.instructor_id ?? null : null);
+    // 묶음 결제("A + B")는 조각마다 나눈다: 상품에 묶인 수업이 먼저, 없으면(웜업, 못 찾은 상품) 결제에 고른 수업.
+    const parts = comboParts(db, r.product_name);
+    if (parts) {
+      const amounts = comboAmounts(r.amount, parts);
+      return parts.map((x, i) => { const courseId = x?.course_id ?? r.course_id ?? null; return { instructor_id: insFor(courseId), course_id: courseId, paid_at: r.paid_at, amount: amounts[i], payer_name: r.payer_name }; });
+    }
     const courseId = r.course_id ?? (byName.get(r.product_name) as { course_id: string | null } | undefined)?.course_id ?? findProduct(db, r.product_name)?.course_id ?? null;
     const c = courseId ? (insOf.get(courseId) as { instructor_id: string } | undefined) : undefined;
     return { instructor_id: c?.instructor_id ?? null, course_id: courseId, paid_at: r.paid_at, amount: r.amount, payer_name: r.payer_name };

@@ -1,6 +1,7 @@
 import { it, expect } from 'vitest';
 import { makeDb } from './fixtures.js';
-import { ingestPayments, cancelPayment, assignPayment, repairCombinedPayments, splitAmount, PassInUseError } from '../src/domain/payments.js';
+import { ingestPayments, cancelPayment, assignPayment, repairCombinedPayments, splitAmount, comboAmounts, PassInUseError } from '../src/domain/payments.js';
+import { settle } from '../src/domain/settlement.js';
 const row = (externalId: string, productName: string, amount: number) => ({ source: 'KIOSK' as const, externalId, paidAt: '2026-11-12T10:08:00Z', amount, payerName: 'x', payerPhone: '01077778888', productName });
 const passesOf = (db: any, paymentId: string) => db.prepare('select product_id, price, total_count, remaining from passes where payment_id=? order by price').all(paymentId);
 
@@ -51,4 +52,21 @@ it('repairs an old combined payment that made only one pass, once, keeping its a
   expect(db.prepare("select price, remaining, valid_from from passes where id='keep'").get()).toEqual({ price: 180000, remaining: 5, valid_from: '2026-10-29' });
   expect(db.prepare("select product_id, price, remaining, valid_from, member_id from passes where payment_id='old' and id<>'keep'").get()).toEqual({ product_id: 'p_four', price: 100000, remaining: 4, valid_from: '2026-10-29', member_id: m });
   expect(db.prepare("select count(*) n from audit_log where action='payment.split'").get()).toEqual({ n: 1 });
+});
+
+it('a combined drop-in payment settles each part to its own class; a part without a class uses the chosen class', () => {
+  const { db } = makeDb();
+  const cs = db.prepare("select id, instructor_id from courses where kind='GENERAL' limit 2").all() as { id: string; instructor_id: string }[];
+  const pr = db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values(?,?,?,'COUNT',1,6,?,1)");
+  pr.run('t_a', '(1 TICKET) AAA', cs[0].id, 35000);
+  pr.run('t_w', 'WARM UP TRAINING', null, 30000);
+  ingestPayments(db, [{ ...row('d1', '(1 TICKET) AAA + WARM UP TRAINING', 65000), payerPhone: '' }], null);
+  ingestPayments(db, [{ ...row('d2', '(1 TICKET) AAA + 없는 워크숍', 80000), payerPhone: '' }], null);
+  expect(db.prepare("select drop_in from payments where external_id='d1'").get()).toEqual({ drop_in: 1 });
+  db.prepare("update payments set course_id=? where external_id='d1'").run(cs[1].id);
+  const lines = settle(db, '2026-11');
+  const rev = (ins: string) => lines.filter((l) => l.instructorId === ins).reduce((n, l) => n + l.courses.reduce((m, c) => m + c.revenue, 0), 0);
+  if (cs[0].instructor_id === cs[1].instructor_id) expect(rev(cs[0].instructor_id)).toBe(35000 + 30000 + 35000);
+  else { expect(rev(cs[0].instructor_id)).toBe(35000 + 35000); expect(rev(cs[1].instructor_id)).toBe(30000); }
+  expect(comboAmounts(80000, [{ price: 35000 } as any, undefined])).toEqual([35000, 45000]);
 });

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { newId, nowIso, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
-import { type PaymentInput, ingestPayments, findProduct, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
+import { type PaymentInput, ingestPayments, isDropIn, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
 import { idemKey, idemGet, idemPut } from '../idempotency.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
@@ -69,7 +69,7 @@ export function paymentRoutes(d: Deps) {
     if (hit) return c.json(hit.body as object, hit.status as 200);
     const id = db.transaction(() => {
       const id = newId();
-      const drop = findProduct(db, b.productName)?.drop_in ? 1 : 0;
+      const drop = isDropIn(db, b.productName) ? 1 : 0;
       db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in,course_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, drop, drop && !b.memberId ? (b.courseId ?? null) : null);
       audit(db, staffId, 'payment.manual', 'payment', id);

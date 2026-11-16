@@ -21,16 +21,27 @@ export function findProduct(db: Db, name: string) {
   if (exact) return exact;
   return all.filter((p) => squash(p.name) && n.includes(squash(p.name))).sort((a, b) => squash(b.name).length - squash(a.name).length)[0];
 }
-/**
- * 키오스크가 한 번에 여러 상품을 결제하면 상품명이 "A + B" 로 온다. 나눈 조각이 모두 수강권 상품(원데이 아님)이고
- * 2개 이상이면 그 상품들을 돌려준다. 아니면 null(예전처럼 이름 하나로 찾는다).
- */
-export function splitProducts(db: Db, name: string): ProductRow[] | null {
+/** 키오스크가 한 번에 여러 상품을 결제하면 상품명이 "A + B" 로 온다. 조각이 2개 이상이면 조각마다 찾은 상품(못 찾으면 undefined). */
+export function comboParts(db: Db, name: string): (ProductRow | undefined)[] | null {
   const parts = (name ?? '').split('+').map((x) => x.trim()).filter(Boolean);
-  if (parts.length < 2) return null;
-  const prods = parts.map((x) => findProduct(db, x));
-  if (prods.some((x) => !x || x.drop_in)) return null;
-  return prods as ProductRow[];
+  return parts.length < 2 ? null : parts.map((x) => findProduct(db, x));
+}
+/** 묶음 결제의 조각이 모두 상품으로 찾아지면 그 상품들(수강권을 상품마다 만든다). 아니면 null(예전처럼 이름 하나로 찾는다). */
+export function splitProducts(db: Db, name: string): ProductRow[] | null {
+  const prods = comboParts(db, name);
+  return prods && prods.every(Boolean) ? (prods as ProductRow[]) : null;
+}
+/** 원데이 결제인가: 묶음이면 찾은 조각이 모두 원데이일 때. */
+export function isDropIn(db: Db, name: string) {
+  const parts = comboParts(db, name)?.filter(Boolean);
+  return parts?.length ? parts.every((x) => x!.drop_in) : !!findProduct(db, name)?.drop_in;
+}
+/** 묶음 결제 금액 나누기: 찾은 조각은 정가, 못 찾은 조각은 남는 돈을 똑같이 나눈 값을 기준으로 비율을 낸다. */
+export function comboAmounts(amount: number, parts: (ProductRow | undefined)[]) {
+  const known = parts.reduce((n, x) => n + (x?.price ?? 0), 0);
+  const unknown = parts.filter((x) => !x).length;
+  const rest = unknown ? Math.max(0, amount - known) / unknown : 0;
+  return splitAmount(amount, parts.map((x) => (x ? x.price : rest)));
 }
 /** 결제액을 상품 정가 비율로 나눈다(나머지는 마지막 상품). 정가 합이 0이면 똑같이 나눈다. */
 export function splitAmount(amount: number, prices: number[]) {
@@ -155,7 +166,7 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
       // A refund whose approval number appears only once in this file is matched after every approval row is in.
       if (r.status === 'CANCELLED') { if (!r.externalId || extIds.get(r.externalId) === 1) refunds.push({ id, phone, r }); continue; }
       // 원데이 상품(회원 없이 결제만)은 결제에 표시해 둔다: 확인 필요에 회원 연결로 올리지 않고, 정산은 수업 강사 몫으로 센다.
-      if (findProduct(db, r.productName)?.drop_in) db.prepare('update payments set drop_in=1 where id=?').run(id);
+      if (isDropIn(db, r.productName)) db.prepare('update payments set drop_in=1 where id=?').run(id);
       if (!phone) continue;
       const m = db.prepare('select id from members where phone=? and erased_at is null').all(phone) as { id: string }[];
       if (m.length === 1) { assignPayment(db, id, m[0].id, staffId, onPass); matched++; }
