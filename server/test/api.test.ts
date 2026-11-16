@@ -50,7 +50,7 @@ describe('api', () => {
     expect(await (await req('/attendances', { method: 'POST', body: { qr: page.qr, courseId: course.id } }, c)).json()).toMatchObject({ ok: false, reason: 'ALREADY' });
     expect(await (await req('/attendances', { method: 'POST', body: { qr: 'AM1:x:y', courseId: course.id } }, c)).json()).toMatchObject({ ok: false, reason: 'UNKNOWN_QR' });
     const again = await (await req(`/members/${m.id}/link`, { method: 'POST' }, c)).json();
-    expect((await req('/public/m/' + token)).status).toBe(404);
+    expect((await req('/public/m/' + token)).status).toBe(200); // a reissued link does not cut off the earlier one
     expect((await req('/public/m/' + again.url.split('/m/')[1])).status).toBe(200);
     expect((await req('/public/m/nonexistenttoken000000')).status).toBe(404);
   });

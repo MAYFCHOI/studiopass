@@ -3,10 +3,13 @@ import type { Db } from './db.js';
 import { nowIso } from './util.js';
 import { audit } from './audit.js';
 const h = (t: string) => createHash('sha256').update(t).digest('hex');
-/** Issues a fresh member-page token (22 chars base64url). Only its sha256 is stored; reissuing replaces the old one. */
+/** Issues a fresh member-page token (22 chars base64url). Only its sha256 is stored. Earlier links keep working
+ *  (a member opens whichever message they find) up to the KEEP most recent per member. */
+const KEEP = 5;
 export function issueLink(db: Db, memberId: string, staffId: string | null) {
   const t = randomBytes(16).toString('base64url');
-  db.prepare('insert into member_links(member_id,token_hash,issued_at,issued_by) values(?,?,?,?) on conflict(member_id) do update set token_hash=excluded.token_hash, issued_at=excluded.issued_at, issued_by=excluded.issued_by').run(memberId, h(t), nowIso(), staffId);
+  db.prepare('insert into member_links(member_id,token_hash,issued_at,issued_by) values(?,?,?,?)').run(memberId, h(t), nowIso(), staffId);
+  db.prepare('delete from member_links where member_id=? and token_hash not in (select token_hash from member_links where member_id=? order by issued_at desc, rowid desc limit ?)').run(memberId, memberId, KEEP);
   audit(db, staffId, 'member.link', 'member', memberId);
   return t;
 }

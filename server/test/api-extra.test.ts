@@ -192,6 +192,18 @@ describe('public', () => {
   });
 });
 
+describe('member link reissue', () => {
+  it('keeps earlier links working, up to the five most recent', async () => {
+    const o = await login('owner');
+    const m = await (await req('/members', { method: 'POST', body: { name: '링크', phone: '01077778888' } }, o)).json();
+    const tok: string[] = [];
+    for (let i = 0; i < 6; i++) tok.push((await (await req(`/members/${m.id}/link`, { method: 'POST' }, o)).json()).url.split('/m/')[1]);
+    expect((await req('/public/m/' + tok[0])).status).toBe(404);
+    for (const t of tok.slice(1)) expect((await req('/public/m/' + t)).status).toBe(200);
+    expect(db.prepare('select count(*) n from member_links where member_id=?').get(m.id)).toEqual({ n: 5 });
+  });
+});
+
 describe('static', () => {
   it('serves member.html for /m/* and falls back to index.html', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'sp-static-'));
