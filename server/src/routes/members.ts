@@ -3,7 +3,7 @@ import type { Db } from '../db.js';
 import { newId, nowIso, kstDate, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
 import { assignPayment } from '../domain/payments.js';
-import { attend, cancelAttendance } from '../domain/attendance.js';
+import { attend, backfillAttendance, cancelAttendance } from '../domain/attendance.js';
 import { tierFor } from '../domain/tiers.js';
 import { parseQr } from '../qr.js';
 import { issueLink } from '../links.js';
@@ -204,6 +204,14 @@ export function memberRoutes(d: Deps) {
     // The created attendance lets the screen update its lists without downloading /bootstrap again.
     const extra = res.ok ? { attendance: toAttendance(db.prepare('select * from attendances where id=?').get(res.attendanceId)) } : {};
     return c.json(m ? { ...res, ...extra, member: { id: m.id, name: m.name } } : { ...res, ...extra });
+  });
+
+  r.post('/attendances/backfill', async (c) => {
+    const b = await body(c);
+    if (!b || !str(b.memberId) || !str(b.passId) || !str(b.courseId) || !str(b.date)) return bad(c);
+    const res = backfillAttendance(db, { memberId: b.memberId, passId: b.passId, courseId: b.courseId, date: b.date, staffId: c.get('me').staffId, now: clock(d) });
+    if (!res.ok) return c.json({ error: res.reason }, res.reason === 'ALREADY' || res.reason === 'EMPTY' ? 409 : 400);
+    return c.json({ ok: true, attendance: toAttendance(db.prepare('select * from attendances where id=?').get(res.attendanceId)) });
   });
 
   r.post('/attendances/:id/cancel', (c) => c.json({ ok: cancelAttendance(db, c.req.param('id'), c.get('me').staffId) }));

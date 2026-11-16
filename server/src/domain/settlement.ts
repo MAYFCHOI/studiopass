@@ -2,11 +2,11 @@ import type { Db } from '../db.js';
 import { kstDate } from '../util.js';
 import { findProduct } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
-export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN' };
+export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN'; bonus?: number };
 export type DayLine = { date: string; heads: number; revenue: number; people: Person[] };
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
-export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sessions: number; heads: number; revenue: number; instructorPay: number; proTickets: number; dropIns: number; days: DayLine[] };
-export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
+export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; proTickets: number; dropIns: number; days: DayLine[] };
+export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
 type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number; payer_name: string | null };
 /**
  * 그 달(KST)의 원데이 결제: 회원 연결 없이 결제만 있는 건. 결제에 고른 수업, 없으면 상품에 묶인 수업의 강사 몫으로 센다(둘 다 없으면 어느 강사에게도 가지 않는다).
@@ -29,6 +29,7 @@ function dropIns(db: Db, month: string): DropIn[] {
 /**
  * 강사별 정산. 수업 단위로 계산한 뒤 더한다: 수업에 정산 조건이 있으면 그것, 없으면 강사 기본 조건.
  * 비율제는 그 수업 매출 × 강사 비율, 타임제는 그 수업 타임 수 × 1타임 금액(매출은 전부 학원).
+ * 상품에 출석 1회당 추가 페이(attend_bonus)가 있으면 그 수강권 출석마다 강사 몫에 더한다(학원이 낸다, 학원 몫에서 빼지 않는 타임 금액과 같다).
  */
 /** 원데이 결제가 센 수업 날: 결제한 날부터 그 수업 요일이 처음 오는 날(미리 결제해도 수업 날 1타임으로 묶인다). 달은 넘기지 않는다 */
 function classDay(paid: string, weekday?: number) {
@@ -41,7 +42,7 @@ function classDay(paid: string, weekday?: number) {
 export function settle(db: Db, month: string): SettlementLine[] {
   const ins = db.prepare('select id, name, settlement_type, ratio_instructor, per_session_fee from instructors').all() as any[];
   const courses = new Map((db.prepare('select id, name, weekday, start_time, settlement_type, ratio_instructor, per_session_fee from courses').all() as any[]).map((c) => [c.id, c]));
-  const att = db.prepare(`select a.instructor_id, a.course_id, a.attended_on, a.attended_at, p.kind, p.price, p.total_count, m.name member from attendances a join passes p on p.id=a.pass_id left join members m on m.id=a.member_id
+  const att = db.prepare(`select a.instructor_id, a.course_id, a.attended_on, a.attended_at, p.kind, p.price, p.total_count, pr.attend_bonus bonus, m.name member from attendances a join passes p on p.id=a.pass_id left join products pr on pr.id=p.product_id left join members m on m.id=a.member_id
     where a.cancelled_at is null and a.attended_on like ? order by a.attended_at`).all(month + '-%') as any[];
   const drops = dropIns(db, month);
   return ins.map((i) => {
@@ -51,7 +52,7 @@ export function settle(db: Db, month: string): SettlementLine[] {
       const days = byCourse.get(courseId) ?? new Map<string, Person[]>(); byCourse.set(courseId, days);
       days.set(date, [...(days.get(date) ?? []), p]);
     };
-    for (const a of att) if (a.instructor_id === i.id) add(a.course_id, a.attended_on, { name: a.member ?? '', kind: a.kind, value: a.kind === 'PERIOD' || !(a.total_count > 0) ? 0 : a.price / a.total_count });
+    for (const a of att) if (a.instructor_id === i.id) add(a.course_id, a.attended_on, { name: a.member ?? '', kind: a.kind, value: a.kind === 'PERIOD' || !(a.total_count > 0) ? 0 : a.price / a.total_count, ...(a.bonus ? { bonus: a.bonus } : {}) });
     for (const d of drops) if (d.instructor_id === i.id && d.course_id) add(d.course_id, classDay(kstDate(new Date(d.paid_at)), courses.get(d.course_id)?.weekday), { name: d.payer_name ?? '', kind: 'DROP_IN', value: d.amount });
     const lines: CourseLine[] = [...byCourse].map(([courseId, days]) => {
       const c = courses.get(courseId);
@@ -60,13 +61,14 @@ export function settle(db: Db, month: string): SettlementLine[] {
       const all = [...days.values()].flat();
       const revenue = Math.round(all.reduce((n, p) => n + p.value, 0));
       const sessions = days.size;
-      const instructorPay = terms.type === 'RATIO' ? Math.round((revenue * terms.ratioInstructor) / 100) : sessions * terms.perSessionFee;
-      return { courseId, name: c?.name ?? '', weekday: c?.weekday ?? 0, startTime: c?.start_time ?? '', custom: !!c?.settlement_type, ...terms, sessions, heads: all.length, revenue, instructorPay,
+      const bonus = all.reduce((n, p) => n + (p.bonus ?? 0), 0);
+      const instructorPay = (terms.type === 'RATIO' ? Math.round((revenue * terms.ratioInstructor) / 100) : sessions * terms.perSessionFee) + bonus;
+      return { courseId, name: c?.name ?? '', weekday: c?.weekday ?? 0, startTime: c?.start_time ?? '', custom: !!c?.settlement_type, ...terms, sessions, heads: all.length, revenue, instructorPay, bonus,
         proTickets: all.filter((p) => p.kind === 'PERIOD').length, dropIns: all.filter((p) => p.kind === 'DROP_IN').length, days: dayLines };
     }).sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime));
-    const sum = (k: 'sessions' | 'heads' | 'revenue' | 'instructorPay' | 'proTickets' | 'dropIns') => lines.reduce((n, l) => n + l[k], 0);
-    const ratioPay = lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay, 0);
-    return { instructorId: i.id, name: i.name, ...base, sessions: sum('sessions'), heads: sum('heads'), revenue: sum('revenue'), instructorPay: sum('instructorPay'), academyPay: sum('revenue') - ratioPay, proTickets: sum('proTickets'), dropIns: sum('dropIns'), courses: lines };
+    const sum = (k: 'sessions' | 'heads' | 'revenue' | 'instructorPay' | 'bonus' | 'proTickets' | 'dropIns') => lines.reduce((n, l) => n + l[k], 0);
+    const ratioPay = lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay - l.bonus, 0);
+    return { instructorId: i.id, name: i.name, ...base, sessions: sum('sessions'), heads: sum('heads'), revenue: sum('revenue'), instructorPay: sum('instructorPay'), bonus: sum('bonus'), academyPay: sum('revenue') - ratioPay, proTickets: sum('proTickets'), dropIns: sum('dropIns'), courses: lines };
   });
 }
 

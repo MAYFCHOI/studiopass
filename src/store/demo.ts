@@ -245,6 +245,16 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
             set({ passes: get().passes.map((x) => (x.id === passId ? { ...x, remaining, adjustedUsed: max - remaining || undefined } : x)) });
             return { ok: true };
           },
+          backfillAttendance: async ({ memberId, passId, courseId, date }) => {
+            const s = get(); const p = s.passes.find((x) => x.id === passId); const c = s.courses.find((x) => x.id === courseId);
+            if (!p || !c) return { ok: false, error: 'UNKNOWN_PASS' };
+            if (s.attendances.some((a) => !a.cancelledAt && a.memberId === memberId && a.courseId === courseId && dayjs(a.attendedAt).format('YYYY-MM-DD') === date)) return { ok: false, error: 'ALREADY' };
+            const fromAdj = (p.adjustedUsed ?? 0) > 0;
+            if (!fromAdj && p.remaining <= 0) return { ok: false, error: 'EMPTY' };
+            const at: Attendance = { id: uid(), memberId, passId, courseId, instructorId: c.instructorId, attendedAt: dayjs(`${date}T${c.startTime}`).toISOString(), attendedOn: date, backfilled: true };
+            set({ attendances: [at, ...s.attendances], passes: s.passes.map((x) => (x.id !== passId ? x : fromAdj ? { ...x, adjustedUsed: (x.adjustedUsed ?? 0) - 1 || undefined } : { ...x, remaining: x.remaining - 1 })) });
+            return { ok: true };
+          },
           setMemberTier: async (memberId, level) => { set({ members: get().members.map((m) => (m.id === memberId ? { ...m, tierFloor: level ?? undefined } : m)) }); },
           saveTiers: async (tiers) => { set({ tiers: [...tiers].sort((a, b) => a.minCount - b.minCount) }); },
           memberHistory: async (memberId) => {

@@ -79,3 +79,16 @@ it('a drop-in paid a day early counts on the class day, not as a second session'
   const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
   expect(line).toMatchObject({ sessions: 1, heads: 2, instructorPay: 40000 });
 });
+it('per-attendance bonus on a product goes to the instructor on top of the ratio share', () => {
+  const { db, member, pass, course } = makeDb();
+  const c = course(); const ins = c.instructor_id;
+  db.prepare("update instructors set settlement_type='RATIO', ratio_instructor=50 where id=?").run(ins);
+  db.prepare("update products set attend_bonus=10000 where id='p_pro'").run();
+  const a = member('가', '01000000001'); pass(a, { total: 8, remaining: 8 });
+  const b = member('나', '01000000002'); pass(b, { kind: 'PERIOD', total: 10, remaining: 10 });
+  attend(db, { memberId: a, courseId: c.id, staffId: null, now: new Date('2026-10-19T10:30:00Z') });
+  attend(db, { memberId: b, courseId: c.id, staffId: null, now: new Date('2026-10-19T10:31:00Z') });
+  const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
+  expect(line).toMatchObject({ revenue: 22500, bonus: 10000, instructorPay: 11250 + 10000, academyPay: 11250 });
+  expect(line.courses[0].days[0].people.find((p) => p.kind === 'PERIOD')).toMatchObject({ bonus: 10000 });
+});

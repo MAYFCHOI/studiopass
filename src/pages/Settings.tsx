@@ -194,6 +194,9 @@ export default function Settings() {
           </div>
           <div className="field"><label>가격</label><input className="input" inputMode="numeric" value={edit.v.price ?? 0} onChange={(e) => setEdit({ kind: 'product', v: { ...edit.v, price: Number(e.target.value.replace(/\D/g, '')) } })} /></div>
           {edit.v.passKind === 'COUNT' && <div className="field"><label>원데이 (회원 없이 결제만)</label><div className="seg"><button aria-pressed={!edit.v.dropIn} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, dropIn: false } })}>회원 수강권</button><button aria-pressed={!!edit.v.dropIn} onClick={() => setEdit({ kind: 'product', v: { ...edit.v, dropIn: true } })}>원데이</button></div><p className="sub" style={{ margin: '6px 0 0' }}>원데이는 결제가 들어오면 회원 연결 대신 손님 이름만 적어요. 정산은 이 상품의 수업 강사 몫으로 들어가요.</p></div>}
+          <div className="field"><label>출석 1회당 강사 추가 페이</label>
+            <input className="input" inputMode="numeric" placeholder="없음" value={edit.v.attendBonus ?? ''} onChange={(e) => { const n = Number(e.target.value.replace(/\D/g, '')); setEdit({ kind: 'product', v: { ...edit.v, attendBonus: n || undefined } }); }} />
+            <span className="hint">전문반 프리 티켓처럼 이 수강권으로 출석할 때마다 강사에게 더 주는 금액이에요. 비율제·타임제 몫에 더해져요.</span></div>
           <ActiveField what="상품" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'product', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertProduct(edit.v).then(saved, () => {}); }}>저장</button>
         </Sheet>

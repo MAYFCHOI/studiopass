@@ -59,6 +59,7 @@ export interface Product {
   dropIn?: boolean; // 원데이: 회원 없이 결제만. 확인 필요에 회원 연결을 요구하지 않고 이름만 적는다
   price?: number; // DESK 에게는 없음
   active?: boolean;
+  attendBonus?: number; // 출석 1회당 강사 추가 페이(전문반 프리 티켓 등). DESK 에게는 없음
 }
 
 export interface Payment {
@@ -111,6 +112,7 @@ export interface Attendance {
   attendedAt: string; // ISO
   attendedOn?: string; // KST YYYY-MM-DD (서버)
   cancelledAt?: string;
+  backfilled?: boolean; // 지난 출석 넣기로 만든 출석
 }
 
 export interface State {
@@ -144,6 +146,7 @@ export interface SettlementLine {
   heads: number; // 출석 인원 합
   revenue: number; // 출석 기반 매출(회차 환산)
   instructorPay: number;
+  bonus?: number; // 그중 상품의 출석당 추가 페이 합
   academyPay: number;
   proTickets: number; // 전문반 자유수강 출석(기록만)
   courses: SettlementCourse[]; // 수업별 계산. 합이 위 숫자
@@ -153,8 +156,8 @@ export interface SettlementLine {
 export interface SettlementCourse {
   courseId: string; name: string; weekday: number; startTime: string;
   type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean;
-  sessions: number; heads: number; revenue: number; instructorPay: number; proTickets: number; dropIns: number;
-  days: { date: string; heads: number; revenue: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN' }[] }[];
+  sessions: number; heads: number; revenue: number; instructorPay: number; bonus?: number; proTickets: number; dropIns: number;
+  days: { date: string; heads: number; revenue: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number }[] }[];
 }
 
 export type ImportResult = {
@@ -219,6 +222,8 @@ export interface Actions {
   undoExtendPass(passId: string): Promise<void>;
   /** 횟수권 남은 횟수 맞추기(앱 쓰기 전에 쓴 횟수). 0 ~ remaining + adjustedUsed. 출석 기록은 만들지 않는다 */
   adjustPass(passId: string, remaining: number): Promise<{ ok: true } | { ok: false; error: string }>;
+  /** 지난 출석 넣기(최근 62일, 그 요일 수업). 빼 둔 횟수가 있으면 그걸, 없으면 남은 횟수를 쓴다. 실패는 error 코드 */
+  backfillAttendance(input: { memberId: string; passId: string; courseId: string; date: string }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 원장만: 등급 직접 올리기(1부터, null = 출석 기준) */
   setMemberTier(memberId: string, level: number | null): Promise<void>;
   /** 원장만: 등급 기준 전체 바꾸기(첫 등급은 0회) */

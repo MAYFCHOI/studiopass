@@ -127,9 +127,13 @@ export default function Settlement() {
 const DAY = '일월화수목금토';
 const courseLabel = (c: SettlementCourse) => `${DAY[c.weekday]} ${c.startTime} ${c.name}`;
 const courseTerm = (c: SettlementCourse) => (c.type === 'RATIO' ? `비율제 ${c.ratioInstructor}%` : `타임제 ${won(c.perSessionFee)}`);
-const formula = (c: SettlementCourse) => (c.type === 'RATIO'
-  ? `매출 ${won(c.revenue)} × ${c.ratioInstructor}% = ${won(c.instructorPay)}`
-  : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(c.instructorPay)} (매출 ${won(c.revenue)}은 학원)`);
+const formula = (c: SettlementCourse) => {
+  const b = c.bonus ?? 0; const base = c.instructorPay - b;
+  const plus = b ? ` + 출석 추가 페이 ${won(b)} = ${won(c.instructorPay)}` : '';
+  return c.type === 'RATIO'
+    ? `매출 ${won(c.revenue)} × ${c.ratioInstructor}% = ${won(base)}${plus}`
+    : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(base)}${plus} (매출 ${won(c.revenue)}은 학원)`;
+};
 
 /** 강사 한 명의 그 달 계산: 수업별 조건과 식, 날짜별 출석한 사람과 1회 금액. 합계가 정산 화면의 강사 지급과 같다 */
 function InstructorDetail({ line, month, onClose }: { line: SettlementLine; month: string; onClose: () => void }) {
@@ -143,12 +147,12 @@ function InstructorDetail({ line, month, onClose }: { line: SettlementLine; mont
         <section className="sd-course" key={c.courseId}>
           <div className="sd-head"><b>{courseLabel(c)}</b><span>{courseTerm(c)}{c.custom ? ' · 이 수업만' : ''}</span></div>
           <div className="sd-formula num">{formula(c)}</div>
-          {c.proTickets > 0 && <p className="sub" style={{ margin: '0 0 6px' }}>전문반 출석 {c.proTickets}회는 금액 0원으로 셌어요.</p>}
+          {c.proTickets > 0 && <p className="sub" style={{ margin: '0 0 6px' }}>전문반 출석 {c.proTickets}회는 매출 0원으로 셌어요{c.bonus ? '. 출석 추가 페이는 강사 몫에 따로 더했어요' : ''}.</p>}
           <div className="sd-days">
             {c.days.map((d) => (
               <div className="sd-day" key={d.date}>
                 <div className="sd-date"><b>{dayjs(d.date).format('M/D')}</b><span>{d.heads}명 · {won(d.revenue)}</span></div>
-                <div className="sd-people">{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>} <span className="num">{won(p.value)}</span></span>)}</div>
+                <div className="sd-people">{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>} <span className="num">{won(p.value)}{p.bonus ? ` +${won(p.bonus)}` : ''}</span></span>)}</div>
               </div>
             ))}
           </div>

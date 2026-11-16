@@ -192,6 +192,26 @@ describe('public', () => {
   });
 });
 
+describe('backfill route and product bonus', () => {
+  it('desk backfills an attendance, owner sets a per-attendance bonus that desk does not see', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('b1', '01099990000')] } }, o);
+    const m = await (await req('/members', { method: 'POST', body: { name: '지난', phone: '01099990000' } }, d)).json();
+    const pass = db.prepare('select id from passes where member_id=?').get(m.id) as any;
+    const co = db.prepare("select id, weekday from courses where kind='GENERAL' and weekday=1 limit 1").get() as any; // 2026-10-19 = 월
+    const r = await req('/attendances/backfill', { method: 'POST', body: { memberId: m.id, passId: pass.id, courseId: co.id, date: '2026-10-12' } }, d);
+    expect(r.status).toBe(200); expect((await r.json()).attendance).toMatchObject({ attendedOn: '2026-10-12', backfilled: true });
+    const again = await req('/attendances/backfill', { method: 'POST', body: { memberId: m.id, passId: pass.id, courseId: co.id, date: '2026-10-12' } }, d);
+    expect(again.status).toBe(409); expect(await again.json()).toEqual({ error: 'ALREADY' });
+    expect((await req('/attendances/backfill', { method: 'POST', body: { memberId: m.id } }, d)).status).toBe(400);
+    const prod = db.prepare("select id from products where pass_kind='PERIOD' limit 1").get() as any;
+    expect((await req(`/products/${prod.id}`, { method: 'PUT', body: { attendBonus: -1 } }, o)).status).toBe(400);
+    expect(await (await req(`/products/${prod.id}`, { method: 'PUT', body: { attendBonus: 10000 } }, o)).json()).toMatchObject({ attendBonus: 10000 });
+    expect((await (await req('/bootstrap', {}, d)).json()).products.find((x: any) => x.id === prod.id).attendBonus).toBeUndefined();
+    expect(await (await req(`/products/${prod.id}`, { method: 'PUT', body: { attendBonus: null } }, o)).json()).not.toHaveProperty('attendBonus');
+  });
+});
+
 describe('member link reissue', () => {
   it('keeps earlier links working, up to the five most recent', async () => {
     const o = await login('owner');

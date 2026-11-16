@@ -26,7 +26,7 @@ export const toCourse = (r: any, role: Role) => ({
 });
 export const toProduct = (r: any, role: Role) => ({
   id: r.id, name: r.name, courseId: opt(r.course_id), passKind: r.pass_kind, count: r.count, periodDays: r.period_days, active: !!r.active, dropIn: !!r.drop_in,
-  ...(owner(role) ? { price: r.price } : {}),
+  ...(owner(role) ? { price: r.price, attendBonus: opt(r.attend_bonus) } : {}),
 });
 export const toPass = (r: any, role: Role) => ({
   id: r.id, memberId: r.member_id, productId: r.product_id, courseId: opt(r.course_id), kind: r.kind, totalCount: r.total_count, remaining: r.remaining, validFrom: r.valid_from, validTo: r.valid_to, paymentId: opt(r.payment_id), extendedDays: opt(r.extended_days), extendedAt: opt(r.extended_at), adjustedUsed: opt(r.adjusted_used),
@@ -36,4 +36,4 @@ export const toPayment = (r: any, role: Role) => ({
   id: r.id, source: r.source, externalId: opt(r.external_id), paidAt: r.paid_at, payerName: opt(r.payer_name), payerPhone: r.payer_phone, productName: r.product_name, status: r.status, memberId: opt(r.member_id), passId: opt(r.pass_id), review: opt(r.review), refundOf: opt(r.refund_of), refundSuggestedOf: opt(r.refund_suggested_of), importBatchId: opt(r.import_batch_id), dropIn: !!r.drop_in, method: opt(r.method), courseId: opt(r.course_id),
   ...(owner(role) ? { amount: r.amount } : {}),
 });
-export const toAttendance = (r: any) => ({ id: r.id, memberId: r.member_id, passId: r.pass_id, courseId: r.course_id, instructorId: r.instructor_id, attendedAt: r.attended_at, attendedOn: r.attended_on, cancelledAt: opt(r.cancelled_at) });
+export const toAttendance = (r: any) => ({ id: r.id, memberId: r.member_id, passId: r.pass_id, courseId: r.course_id, instructorId: r.instructor_id, attendedAt: r.attended_at, attendedOn: r.attended_on, cancelledAt: opt(r.cancelled_at), ...(r.backfilled ? { backfilled: true } : {}) });

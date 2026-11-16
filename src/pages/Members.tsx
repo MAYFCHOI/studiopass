@@ -41,6 +41,9 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [showAllFor, setShowAllFor] = useState<string | null>(null); // 출석 기록 전부 보기(회원별)
   const [ext, setExt] = useState<{ passId: string; days: number } | null>(null); // 유효기간 연장 중인 수강권
   const [extBusy, setExtBusy] = useState(false);
+  const [qrUrl, setQrUrl] = useState<string | null>(null); // 화면에 띄운 회원 페이지 링크 QR
+  const [qrBusy, setQrBusy] = useState(false);
+  const [bf, setBf] = useState<{ date: string; courseId: string; passId: string } | null>(null); // 지난 출석 넣기
   const [adj, setAdj] = useState<{ passId: string; remaining: number } | null>(null); // 남은 횟수 맞추는 중인 수강권
   const memberHistory = s.memberHistory;
   useEffect(() => {
@@ -100,6 +103,28 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       else if (r?.error === 'NO_PHONE') toast('전화번호가 없어서 보낼 수 없어요');
       else toast('알림톡을 보내지 못했어요. 링크 문자로 보내 주세요');
     };
+    // 데스크 화면에 회원 페이지 링크를 QR 로 띄운다. 회원이 자기 폰 카메라로 찍으면 열린다(문자 없음, 번호 안 보임)
+    const showQr = async () => {
+      if (qrBusy) return;
+      setQrBusy(true);
+      const url = await s.issueLink(m.id).catch(() => null);
+      setQrBusy(false);
+      if (!url) { toast('링크를 만들지 못했어요. 다시 시도해 주세요'); return; }
+      setQrUrl(url);
+    };
+    const minDay = dayjs().subtract(62, 'day').format('YYYY-MM-DD');
+    const bfCourses = bf ? s.courses.filter((c) => c.weekday.includes(dayjs(bf.date).day())).sort((a, b) => a.startTime.localeCompare(b.startTime)) : [];
+    const bfPasses = passes.filter((p) => p.remaining > 0 || (p.adjustedUsed ?? 0) > 0);
+    const openBf = () => { const date = t; const c = s.courses.filter((x) => x.active !== false && x.weekday.includes(dayjs(date).day()))[0]; setBf({ date, courseId: c?.id ?? '', passId: bfPasses[0]?.id ?? '' }); };
+    const saveBf = async () => {
+      if (!bf || !bf.courseId || !bf.passId || extBusy) return;
+      setExtBusy(true);
+      try {
+        const r = await s.backfillAttendance({ memberId: m.id, ...bf });
+        if (r.ok) { toast(`${dayjs(bf.date).format('M/D')} 출석을 넣었어요`); setBf(null); }
+        else toast({ ALREADY: '그날 그 수업은 이미 출석이 있어요', EMPTY: '이 수강권은 남은 횟수가 없어요', WRONG_DAY: '그 수업 요일이 아니에요', NOT_FOR_COURSE: '이 수강권으로는 그 수업을 들을 수 없어요', BAD_DATE: '최근 62일 안의 지난 날짜만 넣을 수 있어요' }[r.error] ?? '넣지 못했어요. 다시 시도해 주세요');
+      } catch { /* 안내는 스토어가 띄운다 */ } finally { setExtBusy(false); }
+    };
     const erase = async () => {
       if (eraseBusy) return;
       setEraseBusy(true);
@@ -121,11 +146,21 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         </div>
         {!m.erased && <div className="btn-row">
           {IS_DEMO ? <button className="btn primary wide" onClick={share}>QR 보내기</button>
-            : s.alimtalkEnabled ? <button className="btn primary wide" disabled={talkBusy} onClick={() => { void sendTalk(); }}>{talkBusy ? '보내는 중…' : '알림톡으로 링크 보내기'}</button>
-            : <button className="btn primary wide" disabled={busy} onClick={() => { void sendLink(); }}>{busy ? '링크 만드는 중…' : '링크 문자 보내기'}</button>}
+            : <button className="btn primary wide" disabled={qrBusy} onClick={() => { void showQr(); }}>{qrBusy ? '링크 만드는 중…' : '화면에 QR 띄우기'}</button>}
           <button className="btn wide" onClick={() => { setForm({ name: m.name, phone: fmtPhone(m.phone), memo: m.memo ?? '' }); setAdding(true); }}>정보 수정</button>
         </div>}
-        {!m.erased && !IS_DEMO && s.alimtalkEnabled && <button className="btn sm ghost" style={{ marginTop: 8 }} disabled={busy} onClick={() => { void sendLink(); }}>링크 문자 보내기</button>}
+        {!m.erased && !IS_DEMO && (
+          <div className="btn-row" style={{ marginTop: 8 }}>
+            {s.alimtalkEnabled && <button className="btn sm ghost" disabled={talkBusy} onClick={() => { void sendTalk(); }}>{talkBusy ? '보내는 중…' : '알림톡으로 보내기'}</button>}
+            <button className="btn sm ghost" disabled={busy} onClick={() => { void sendLink(); }}>{busy ? '링크 만드는 중…' : '링크 문자 보내기'}</button>
+          </div>
+        )}
+        {qrUrl && (
+          <Sheet onClose={() => setQrUrl(null)} title={`${m.name}님 회원 페이지`}>
+            <div className="link-qr"><QR text={qrUrl} /></div>
+            <p className="sub" style={{ textAlign: 'center' }}>회원 휴대폰 카메라로 이 QR 을 비추면 회원 페이지가 열려요. 열린 페이지를 홈 화면에 추가해 두면 다음부터 바로 열 수 있어요.</p>
+          </Sheet>
+        )}
         {!m.erased && m.tier && (s.tiers?.length ?? 0) > 0 && (
           <div className="tier-row">
             <div className="main"><div className="t">등급 {m.tier.name}</div><div className="d">출석 {m.tier.count}회{m.tier.manual ? ' · 원장이 올린 등급' : m.tierFloor ? ` · 원장이 ${s.tiers?.[m.tierFloor - 1]?.name ?? ''} 이상으로 정함` : ''}</div></div>
@@ -205,11 +240,29 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
         )}
 
         <h2>출석 기록</h2>
+        {!m.erased && !bf && bfPasses.length > 0 && <button className="btn sm ghost" onClick={openBf}>지난 출석 넣기</button>}
+        {bf && (
+          <div className="pass-extend">
+            <label className="sub">날짜 <input className="input" type="date" min={minDay} max={t} value={bf.date} onChange={(e) => { const date = e.target.value || t; const c = s.courses.filter((x) => x.active !== false && x.weekday.includes(dayjs(date).day()))[0]; setBf({ ...bf, date, courseId: c?.id ?? '' }); }} style={{ display: 'inline-block', width: 'auto', marginLeft: 6 }} /></label>
+            <select className="input" aria-label="수업" value={bf.courseId} onChange={(e) => setBf({ ...bf, courseId: e.target.value })}>
+              {bfCourses.length === 0 && <option value="">그 요일 수업이 없어요</option>}
+              {bfCourses.map((c) => <option key={c.id} value={c.id}>{c.startTime} {courseTitle(s, c)}{c.active === false ? ' (쉬는 수업)' : ''}</option>)}
+            </select>
+            <select className="input" aria-label="수강권" value={bf.passId} onChange={(e) => setBf({ ...bf, passId: e.target.value })}>
+              {bfPasses.map((p) => <option key={p.id} value={p.id}>{passName(s, p)} · {p.adjustedUsed ? `앱 전 사용 ${p.adjustedUsed}회에서` : `남은 ${p.remaining}회에서`}</option>)}
+            </select>
+            <p className="sub" style={{ margin: 0 }}>{dayjs(bf.date).format('M/D')} 그 수업 강사 정산에 1명으로 들어가요.{(() => { const p = bfPasses.find((x) => x.id === bf.passId); return p?.adjustedUsed ? ' 앱 전 사용 횟수에서 바꾸니 남은 횟수는 그대로예요.' : ' 남은 횟수가 1 줄어요.'; })()}{bf.date.slice(0, 7) < t.slice(0, 7) ? ' 지난달 정산 숫자가 바뀌어요.' : ''}</p>
+            <div className="pass-actions">
+              <button className="btn sm" onClick={() => setBf(null)}>닫기</button>
+              <button className="btn sm primary" disabled={extBusy || !bf.courseId || !bf.passId} onClick={() => { void saveBf(); }}>출석 넣기</button>
+            </div>
+          </div>
+        )}
         {att.length === 0 ? <p className="sub">출석 기록이 없어요.</p> : (
           <div className="list">
             {(showAllFor === m.id ? att : att.slice(0, 30)).map((a) => (
               <div className="row" key={a.id} style={a.cancelledAt ? { opacity: .4 } : undefined}>
-                <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.courses.find((c) => c.id === a.courseId)?.hall}{s.passes.find((p) => p.id === a.passId)?.kind === 'PERIOD' && ' · 월정액'}{a.cancelledAt && ' · 취소됨'}</div></div>
+                <div className="main"><div className="t">{course(a.courseId)}</div><div className="d">{dayjs(a.attendedAt).format('M/D (dd) HH:mm')} · {s.courses.find((c) => c.id === a.courseId)?.hall}{s.passes.find((p) => p.id === a.passId)?.kind === 'PERIOD' && ' · 월정액'}{a.backfilled && ' · 지난 출석으로 넣음'}{a.cancelledAt && ' · 취소됨'}</div></div>
                 {!a.cancelledAt && <button className="btn sm ghost" onClick={() => { if (confirm('이 출석을 취소하고 횟수를 되돌릴까요?')) { s.cancelAttendance(a.id).then(() => toast('출석을 취소했어요'), () => {}); } }}>취소</button>}
               </div>
             ))}
