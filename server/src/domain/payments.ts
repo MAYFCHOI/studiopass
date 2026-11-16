@@ -3,7 +3,7 @@ import type { Db } from '../db.js';
 import { newId, nowIso, kstDate, addDays, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
 export type PaymentInput = { source: 'KIOSK' | 'MANUAL'; externalId?: string | null; paidAt: string; amount: number; payerName?: string | null; payerPhone?: string | null; productName: string; status?: 'APPROVED' | 'CANCELLED' };
-type ProductRow = { id: string; name: string; course_id: string | null; pass_kind: 'COUNT' | 'PERIOD'; count: number; period_days: number; drop_in: number };
+type ProductRow = { id: string; name: string; course_id: string | null; pass_kind: 'COUNT' | 'PERIOD'; count: number; period_days: number; drop_in: number; price: number };
 type OnPass = (memberId: string, passId: string, staffId: string | null) => void;
 export class PassInUseError extends Error { constructor(public used: number) { super(`pass used ${used} times`); } }
 /** 연결할 수 없는 결제: 취소된 결제(PAYMENT_CANCELLED). 출석에 쓰인 수강권을 다른 회원으로 옮기려 하면 PassInUseError. */
@@ -13,7 +13,7 @@ export const REFUND_MATCH_DAYS = 30;
 
 const squash = (s: string) => (s ?? '').replace(/\s+/g, '').toLowerCase();
 export function findProduct(db: Db, name: string) {
-  const all = db.prepare('select id,name,course_id,pass_kind,count,period_days,drop_in from products where active=1').all() as ProductRow[];
+  const all = db.prepare('select id,name,course_id,pass_kind,count,period_days,drop_in,price from products where active=1').all() as ProductRow[];
   const n = squash(name);
   if (!n) return undefined;
   // 띄어쓰기나 대소문자만 다른 이름("정규 클래스  1회권" / "정규클래스 1회권", "Yeni Cho 1Day" / "YENI CHO 1DAY")은 같은 상품으로 본다.
@@ -21,14 +21,49 @@ export function findProduct(db: Db, name: string) {
   if (exact) return exact;
   return all.filter((p) => squash(p.name) && n.includes(squash(p.name))).sort((a, b) => squash(b.name).length - squash(a.name).length)[0];
 }
-function createPass(db: Db, paymentId: string, memberId: string, productName: string, paidAt: string, amount: number) {
-  const prod = findProduct(db, productName); if (!prod) return null;
-  const from = kstDate(new Date(paidAt)); const id = newId();
-  db.prepare('insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id, memberId, prod.id, prod.course_id, prod.pass_kind, prod.count, prod.count, from, addDays(from, prod.period_days), paymentId, amount, nowIso());
-  return id;
+/**
+ * 키오스크가 한 번에 여러 상품을 결제하면 상품명이 "A + B" 로 온다. 나눈 조각이 모두 수강권 상품(원데이 아님)이고
+ * 2개 이상이면 그 상품들을 돌려준다. 아니면 null(예전처럼 이름 하나로 찾는다).
+ */
+export function splitProducts(db: Db, name: string): ProductRow[] | null {
+  const parts = (name ?? '').split('+').map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const prods = parts.map((x) => findProduct(db, x));
+  if (prods.some((x) => !x || x.drop_in)) return null;
+  return prods as ProductRow[];
 }
-const usedCount = (db: Db, passId: string) => (db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(passId) as { n: number }).n;
+/** 결제액을 상품 정가 비율로 나눈다(나머지는 마지막 상품). 정가 합이 0이면 똑같이 나눈다. */
+export function splitAmount(amount: number, prices: number[]) {
+  const sum = prices.reduce((a, b) => a + b, 0);
+  const out = prices.map((x) => Math.round(sum > 0 ? (amount * x) / sum : amount / prices.length));
+  out[out.length - 1] = amount - out.slice(0, -1).reduce((a, b) => a + b, 0);
+  return out;
+}
+const insertPass = (db: Db, paymentId: string, memberId: string, prod: ProductRow, from: string, price: number) => {
+  const id = newId();
+  db.prepare('insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values(?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, memberId, prod.id, prod.course_id, prod.pass_kind, prod.count, prod.count, from, addDays(from, prod.period_days), paymentId, price, nowIso());
+  return id;
+};
+/** 수강권을 만들고 첫 수강권 id 를 돌려준다(결제의 pass_id). 묶음 결제면 상품마다 하나씩 만든다(passes.payment_id 로 묶인다). */
+function createPass(db: Db, paymentId: string, memberId: string, productName: string, paidAt: string, amount: number) {
+  const from = kstDate(new Date(paidAt));
+  const many = splitProducts(db, productName);
+  if (many) {
+    const prices = splitAmount(amount, many.map((x) => x.price));
+    return many.map((prod, i) => insertPass(db, paymentId, memberId, prod, from, prices[i]))[0];
+  }
+  const prod = findProduct(db, productName); if (!prod) return null;
+  return insertPass(db, paymentId, memberId, prod, from, amount);
+}
+/** 결제로 만든 수강권 전부(묶음 결제면 여러 개). */
+const paymentPasses = (db: Db, paymentId: string, passId: string) =>
+  [...new Set([passId, ...(db.prepare('select id from passes where payment_id=?').all(paymentId) as { id: string }[]).map((x) => x.id)])];
+const usedCount = (db: Db, paymentId: string, passId: string) =>
+  paymentPasses(db, paymentId, passId).reduce((n, id) => n + (db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(id) as { n: number }).n, 0);
+const deletePasses = (db: Db, paymentId: string, passId: string) => {
+  for (const id of paymentPasses(db, paymentId, passId)) { db.prepare('delete from attendances where pass_id=?').run(id); db.prepare('delete from passes where id=?').run(id); }
+};
 
 /**
  * 결제를 회원에게 연결하고 수강권을 만든다. onPass 는 수강권이 새로 생기거나 다른 회원에게 옮겨졌을 때 불린다
@@ -44,9 +79,9 @@ export function assignPayment(db: Db, paymentId: string, memberId: string, staff
     if (p.status !== 'APPROVED') throw new AssignError('PAYMENT_CANCELLED');
     if (p.pass_id) {
       if (p.member_id === memberId) return { passId: p.pass_id };
-      const used = usedCount(db, p.pass_id);
+      const used = usedCount(db, p.id, p.pass_id);
       if (used > 0) throw new PassInUseError(used);
-      db.prepare('update passes set member_id=? where id=?').run(memberId, p.pass_id);
+      for (const id of paymentPasses(db, p.id, p.pass_id)) db.prepare('update passes set member_id=? where id=?').run(memberId, id);
       db.prepare('update payments set member_id=? where id=?').run(memberId, p.id);
       audit(db, staffId, 'payment.reassign', 'payment', p.id, { from: p.member_id, to: memberId, passId: p.pass_id });
       onPass?.(memberId, p.pass_id, staffId);
@@ -147,7 +182,7 @@ export function ingestPayments(db: Db, rows: PaymentInput[], staffId: string | n
  */
 function suggestOriginal(db: Db, cands: { id: string; pass_id: string | null; member_id: string | null; payer_name: string | null }[], payerName?: string | null) {
   if (!cands.length) return null;
-  const free = cands.filter((x) => !x.pass_id || usedCount(db, x.pass_id) === 0);
+  const free = cands.filter((x) => !x.pass_id || usedCount(db, x.id, x.pass_id) === 0);
   const pool = free.length ? free : cands;
   if (new Set(pool.map((x) => x.member_id ?? '')).size === 1) return pool[0].id;
   const name = (payerName ?? '').trim();
@@ -159,10 +194,9 @@ export function cancelPayment(db: Db, paymentId: string, staffId: string | null)
     const p = db.prepare('select id, pass_id, status from payments where id=?').get(paymentId) as { id: string; pass_id: string | null; status: string } | undefined;
     if (!p || p.status === 'CANCELLED') return;
     if (p.pass_id) {
-      const used = usedCount(db, p.pass_id);
+      const used = usedCount(db, p.id, p.pass_id);
       if (used > 0) throw new PassInUseError(used);
-      db.prepare('delete from attendances where pass_id=?').run(p.pass_id);
-      db.prepare('delete from passes where id=?').run(p.pass_id);
+      deletePasses(db, p.id, p.pass_id);
     }
     db.prepare("update payments set status='CANCELLED', pass_id=null, review=null where id=?").run(p.id);
     audit(db, staffId, 'payment.cancel', 'payment', p.id);
@@ -223,8 +257,8 @@ export function revertBatch(db: Db, batchId: string, staffId: string | null) {
     const rows = db.prepare('select id, pass_id from payments where import_batch_id=?').all(batchId) as { id: string; pass_id: string | null }[];
     let removed = 0, kept = 0;
     for (const p of rows) {
-      if (p.pass_id && usedCount(db, p.pass_id) > 0) { kept++; continue; }
-      if (p.pass_id) { db.prepare('delete from attendances where pass_id=?').run(p.pass_id); db.prepare('delete from passes where id=?').run(p.pass_id); }
+      if (p.pass_id && usedCount(db, p.id, p.pass_id) > 0) { kept++; continue; }
+      if (p.pass_id) deletePasses(db, p.id, p.pass_id);
       db.prepare('update payments set refund_of=null where refund_of=?').run(p.id);
       db.prepare("update payments set refund_suggested_of=null, review=case when review='REFUND_SUGGESTED' then 'REFUND_UNMATCHED' else review end where refund_suggested_of=?").run(p.id);
       db.prepare('delete from payments where id=?').run(p.id);
@@ -232,5 +266,28 @@ export function revertBatch(db: Db, batchId: string, staffId: string | null) {
     }
     if (rows.length) audit(db, staffId, 'payment.import_revert', 'import_batch', batchId, { removed, kept });
     return { removed, kept };
+  })();
+}
+/**
+ * 묶음 결제("A + B")가 예전처럼 수강권 하나(결제액 전부)로만 만들어진 경우를 고친다. 서버 시작 때 돈다(두 번 돌아도 그대로).
+ * 있던 수강권은 남기고(출석·남은 횟수·시작일 그대로) 가격만 정가 비율 몫으로 줄이고, 빠진 상품의 수강권을 같은 시작일로 만든다.
+ */
+export function repairCombinedPayments(db: Db) {
+  return db.transaction(() => {
+    const rows = db.prepare("select id, pass_id, member_id, product_name, amount from payments where status='APPROVED' and pass_id is not null and product_name like '%+%'").all() as { id: string; pass_id: string; member_id: string; product_name: string; amount: number }[];
+    let fixed = 0;
+    for (const p of rows) {
+      const many = splitProducts(db, p.product_name);
+      if (!many || paymentPasses(db, p.id, p.pass_id).length > 1) continue;
+      const have = db.prepare('select product_id, valid_from from passes where id=?').get(p.pass_id) as { product_id: string; valid_from: string };
+      const at = many.findIndex((x) => x.id === have.product_id);
+      if (at < 0) continue;
+      const prices = splitAmount(p.amount, many.map((x) => x.price));
+      db.prepare('update passes set price=? where id=?').run(prices[at], p.pass_id);
+      const made = many.flatMap((prod, i) => (i === at ? [] : [insertPass(db, p.id, p.member_id, prod, have.valid_from, prices[i])]));
+      audit(db, null, 'payment.split', 'payment', p.id, { kept: p.pass_id, price: prices[at], made });
+      fixed++;
+    }
+    return fixed;
   })();
 }

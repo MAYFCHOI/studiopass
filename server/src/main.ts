@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { openDb } from './db.js';
 import { seedIfEmpty } from './domain/seed.js';
+import { repairCombinedPayments } from './domain/payments.js';
 import { createApp } from './app.js';
 import { loadAlimtalkConfig } from './notify/alimtalk.js';
 import { loadTossConfig } from './toss/config.js';
@@ -17,6 +18,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.SP_ORIGIN?.trim()) {
 const file = process.env.SP_DB ?? 'data/studiopass.db';
 mkdirSync(dirname(file), { recursive: true });
 const db = openDb(file); seedIfEmpty(db);
+{ const n = repairCombinedPayments(db); if (n) console.log(`split ${n} combined payment(s) into one pass per product`); }
 db.prepare('delete from sessions where expires_at < ?').run(new Date().toISOString());
 const alimtalk = loadAlimtalkConfig(process.env);
 const deps: Deps = { db, alimtalk, secureCookies: process.env.NODE_ENV === 'production', allowedOrigin: process.env.SP_ORIGIN ?? null, staticDir: process.env.SP_STATIC };
