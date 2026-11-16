@@ -220,6 +220,8 @@ export interface Actions {
   extendPass(passId: string, days: number): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 원장만: 연장 되돌리기(끝나는 날 원래대로, 다시 1번 가능) */
   undoExtendPass(passId: string): Promise<void>;
+  /** 시작일 바꾸기(입금일과 실제 시작일이 다를 때). 끝나는 날도 같이 옮긴다. 출석한 날보다 뒤면 ATTENDED_BEFORE */
+  setPassStart(passId: string, from: string): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 횟수권 남은 횟수 맞추기(앱 쓰기 전에 쓴 횟수). 0 ~ remaining + adjustedUsed. 출석 기록은 만들지 않는다 */
   adjustPass(passId: string, remaining: number): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 지난 출석 넣기(최근 62일, 그 요일 수업). 빼 둔 횟수가 있으면 그걸, 없으면 남은 횟수를 쓴다. 실패는 error 코드 */

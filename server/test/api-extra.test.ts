@@ -356,6 +356,28 @@ describe('drop-in (원데이) products added after payments came in, and cash dr
   });
 });
 
+describe('pass start date', () => {
+  it('moves start and end together, keeps the extension, refuses moving past an attendance', async () => {
+    const o = await login('owner'); const d = await login('desk');
+    await req('/payments/import', { method: 'POST', body: { rows: [kiosk('s1', '01055556666')] } }, o);
+    const m = await (await req('/members', { method: 'POST', body: { name: '시작', phone: '01055556666' } }, d)).json();
+    const pass = (await (await req('/bootstrap', {}, o)).json()).passes.find((p: any) => p.memberId === m.id);
+    const shift = (s: string, n: number) => new Date(Date.parse(s + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+    expect((await req(`/passes/${pass.id}/start`, { method: 'POST', body: { from: 'nope' } }, d)).status).toBe(400);
+    expect((await req(`/passes/${pass.id}/start`, { method: 'POST', body: { from: shift(pass.validFrom, 61) } }, d)).status).toBe(400);
+    const moved = await (await req(`/passes/${pass.id}/start`, { method: 'POST', body: { from: shift(pass.validFrom, 5) } }, d)).json();
+    expect(moved).toMatchObject({ validFrom: shift(pass.validFrom, 5), validTo: shift(pass.validTo, 5) });
+    expect(moved.extendedDays).toBeUndefined();
+    expect(db.prepare("select count(*) n from audit_log where action='pass.start' and entity_id=?").get(pass.id)).toEqual({ n: 1 });
+    db.prepare("insert into attendances(id,member_id,pass_id,course_id,instructor_id,attended_on,attended_at) select 'a-start',?,?,c.id,c.instructor_id,?,? from courses c limit 1")
+      .run(m.id, pass.id, shift(pass.validFrom, 6), new Date().toISOString());
+    const late = await req(`/passes/${pass.id}/start`, { method: 'POST', body: { from: shift(pass.validFrom, 7) } }, d);
+    expect(late.status).toBe(409); expect(await late.json()).toEqual({ error: 'ATTENDED_BEFORE', first: shift(pass.validFrom, 6) });
+    expect((await req(`/passes/${pass.id}/start`, { method: 'POST', body: { from: pass.validFrom } }, d)).status).toBe(200);
+    expect((await req('/passes/nope/start', { method: 'POST', body: { from: pass.validFrom } }, d)).status).toBe(404);
+  });
+});
+
 describe('pass extension', () => {
   it('desk extends a pass once, the owner can undo, erased members are refused', async () => {
     const o = await login('owner'); const d = await login('desk');

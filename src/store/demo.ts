@@ -237,6 +237,14 @@ export function createDemoStore(): UseBoundStore<StoreApi<Store>> {
           undoExtendPass: async (passId) => {
             set({ passes: get().passes.map((x) => (x.id === passId && x.extendedDays ? { ...x, validTo: dayjs(x.validTo).subtract(x.extendedDays, 'day').format('YYYY-MM-DD'), extendedDays: undefined, extendedAt: undefined } : x)) });
           },
+          setPassStart: async (passId, from) => {
+            const p = get().passes.find((x) => x.id === passId);
+            if (!p) return { ok: false, error: 'NOT_FOUND' };
+            if (get().attendances.some((a) => a.passId === passId && !a.cancelledAt && (a.attendedOn ?? dayjs(a.attendedAt).format('YYYY-MM-DD')) < from)) return { ok: false, error: 'ATTENDED_BEFORE' };
+            const n = dayjs(from).diff(dayjs(p.validFrom), 'day');
+            set({ passes: get().passes.map((x) => (x.id === passId ? { ...x, validFrom: from, validTo: dayjs(x.validTo).add(n, 'day').format('YYYY-MM-DD') } : x)) });
+            return { ok: true };
+          },
           adjustPass: async (passId, remaining) => {
             const p = get().passes.find((x) => x.id === passId);
             if (!p) return { ok: false, error: 'NOT_FOUND' };

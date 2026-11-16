@@ -180,6 +180,10 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         return r.ok ? { ok: true } : { ok: false, error: r.error };
       },
       undoExtendPass: (passId) => post(`/passes/${passId}/extend/undo`).then(() => {}),
+      setPassStart: async (passId, from) => {
+        const r = await mutate409(`/passes/${passId}/start`, { method: 'POST', body: { from } });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
       adjustPass: async (passId, remaining) => {
         const r = await mutate409(`/passes/${passId}/adjust`, { method: 'POST', body: { remaining } });
         return r.ok ? { ok: true } : { ok: false, error: r.error };

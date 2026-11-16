@@ -44,6 +44,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
   const [qrUrl, setQrUrl] = useState<string | null>(null); // 화면에 띄운 회원 페이지 링크 QR
   const [qrBusy, setQrBusy] = useState(false);
   const [bf, setBf] = useState<{ date: string; courseId: string; passId: string } | null>(null); // 지난 출석 넣기
+  const [st, setSt] = useState<{ passId: string; from: string } | null>(null); // 시작일 바꾸는 중인 수강권
   const [adj, setAdj] = useState<{ passId: string; remaining: number } | null>(null); // 남은 횟수 맞추는 중인 수강권
   const memberHistory = s.memberHistory;
   useEffect(() => {
@@ -180,6 +181,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
               const expired = p.validTo < t; const done = p.remaining <= 0;
               const open = ext?.passId === p.id;
               const adjOpen = adj?.passId === p.id;
+              const stOpen = st?.passId === p.id;
               const adjMax = p.remaining + (p.adjustedUsed ?? 0); // 앱 출석을 빼고 남길 수 있는 최대
               const adjust = async () => {
                 if (!adj || extBusy) return;
@@ -188,6 +190,15 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
                   const r = await s.adjustPass(p.id, adj.remaining);
                   if (r.ok) { toast(`남은 횟수를 ${adj.remaining}회로 맞췄어요`); setAdj(null); }
                   else toast(r.error === 'TOO_MANY' ? '앱에서 출석한 횟수보다 많이 남길 수 없어요' : '맞추지 못했어요. 다시 시도해 주세요');
+                } catch { /* 안내는 스토어가 띄운다 */ } finally { setExtBusy(false); }
+              };
+              const moveStart = async () => {
+                if (!st || extBusy) return;
+                setExtBusy(true);
+                try {
+                  const r = await s.setPassStart(p.id, st.from);
+                  if (r.ok) { toast(`${dayjs(st.from).format('M/D')}부터 ${dayjs(p.validTo).add(dayjs(st.from).diff(dayjs(p.validFrom), 'day'), 'day').format('M/D')}까지로 바꿨어요`); setSt(null); }
+                  else toast(r.error === 'ATTENDED_BEFORE' ? '이미 출석한 날보다 뒤로 옮길 수 없어요' : '바꾸지 못했어요. 다시 시도해 주세요');
                 } catch { /* 안내는 스토어가 띄운다 */ } finally { setExtBusy(false); }
               };
               const extend = async () => {
@@ -205,11 +216,22 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
                     <div className="main"><div className="t">{passName(s, p)} {p.kind === 'PERIOD' && <span className="chip pro">월정액</span>}</div><div className="d">{dayjs(p.validFrom).format('M/D')} ~ {dayjs(p.validTo).format('M/D')} {maybeWon(p.price, ' · ')}{p.extendedDays ? ` · ${p.extendedDays}일 연장함` : ''}{p.adjustedUsed ? ` · 앱 전 ${p.adjustedUsed}회 사용` : ''}{expired ? ' · 기간 만료' : done ? ' · 소진' : ''}</div></div>
                     <div className="right inline"><b className="num">{p.remaining}</b> / {p.totalCount}</div>
                   </div>
-                  {!m.erased && !open && !adjOpen && (!done || !!p.adjustedUsed) && (
+                  {!m.erased && !open && !adjOpen && !stOpen && (!done || !!p.adjustedUsed) && (
                     <div className="pass-actions">
-                      {p.kind === 'COUNT' && <button className="btn sm ghost" onClick={() => { setExt(null); setAdj({ passId: p.id, remaining: p.remaining }); }}>횟수 맞추기</button>}
-                      {!done && !p.extendedDays && <button className="btn sm ghost" onClick={() => { setAdj(null); setExt({ passId: p.id, days: 7 }); }}>기간 연장</button>}
+                      {p.kind === 'COUNT' && <button className="btn sm ghost" onClick={() => { setExt(null); setSt(null); setAdj({ passId: p.id, remaining: p.remaining }); }}>횟수 맞추기</button>}
+                      {!done && <button className="btn sm ghost" onClick={() => { setAdj(null); setExt(null); setSt({ passId: p.id, from: p.validFrom }); }}>시작일 바꾸기</button>}
+                      {!done && !p.extendedDays && <button className="btn sm ghost" onClick={() => { setAdj(null); setSt(null); setExt({ passId: p.id, days: 7 }); }}>기간 연장</button>}
                       {!done && !!p.extendedDays && owner && <button className="btn sm ghost" onClick={() => { void s.undoExtendPass(p.id).then(() => toast('연장을 되돌렸어요'), () => {}); }}>연장 되돌리기</button>}
+                    </div>
+                  )}
+                  {stOpen && (
+                    <div className="pass-extend">
+                      <label className="sub">시작일 <input className="input" type="date" min={dayjs(p.validFrom).subtract(60, 'day').format('YYYY-MM-DD')} max={dayjs(p.validFrom).add(60, 'day').format('YYYY-MM-DD')} value={st.from} onChange={(e) => setSt({ passId: p.id, from: e.target.value || p.validFrom })} style={{ display: 'inline-block', width: 'auto', marginLeft: 6 }} /></label>
+                      <p className="sub" style={{ margin: 0 }}><b>{dayjs(st.from).format('M/D')} ~ {dayjs(p.validTo).add(dayjs(st.from).diff(dayjs(p.validFrom), 'day'), 'day').format('M/D')}</b>로 바뀌어요. 끝나는 날도 같이 옮겨지고 기간 연장은 그대로 남아요.</p>
+                      <div className="pass-actions">
+                        <button className="btn sm" onClick={() => setSt(null)}>닫기</button>
+                        <button className="btn sm primary" disabled={extBusy || st.from === p.validFrom} onClick={() => { void moveStart(); }}>시작일 바꾸기</button>
+                      </div>
                     </div>
                   )}
                   {adjOpen && (

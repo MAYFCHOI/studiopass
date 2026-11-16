@@ -139,6 +139,27 @@ export function memberRoutes(d: Deps) {
     return c.json(passOut(c, id));
   });
 
+  /** 시작일 바꾸기: 입금일과 실제 시작일이 다를 때. 끝나는 날도 같은 날수만큼 옮긴다(연장 횟수는 쓰지 않는다).
+   *  지금 시작일에서 앞뒤 60일 안, 이미 출석한 날보다 뒤로는 못 옮긴다. 데스크도 한다. */
+  r.post('/passes/:id/start', async (c) => {
+    const id = c.req.param('id'); const b = await body(c);
+    const from = b?.from;
+    if (typeof from !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(from) || Number.isNaN(Date.parse(from + 'T00:00:00Z'))) return bad(c);
+    const p = db.prepare('select p.*, m.erased_at from passes p join members m on m.id=p.member_id where p.id=?').get(id) as any;
+    if (!p) return notFound(c);
+    if (p.erased_at) return erased(c);
+    const day = 86400000;
+    const shift = Math.round((Date.parse(from + 'T00:00:00Z') - Date.parse(p.valid_from + 'T00:00:00Z')) / day);
+    if (Math.abs(shift) > 60) return bad(c);
+    if (shift === 0) return c.json(passOut(c, id));
+    const first = db.prepare('select min(attended_on) d from attendances where pass_id=? and cancelled_at is null').get(id) as { d: string | null };
+    if (first.d && first.d < from) return c.json({ error: 'ATTENDED_BEFORE', first: first.d }, 409);
+    const validTo = new Date(Date.parse(p.valid_to + 'T00:00:00Z') + shift * day).toISOString().slice(0, 10);
+    db.prepare('update passes set valid_from=?, valid_to=? where id=?').run(from, validTo, id);
+    audit(db, c.get('me').staffId, 'pass.start', 'pass', id, { from: p.valid_from, to: from, validTo: { from: p.valid_to, to: validTo } });
+    return c.json(passOut(c, id));
+  });
+
   /** 앱을 쓰기 전에 쓴 횟수 맞추기: 남은 횟수를 직접 정한다. 출석 기록은 만들지 않으니 정산·등급은 그대로다.
    *  앱에서 쓴 횟수(취소 안 된 출석)보다 많이 남길 수는 없다. 다시 맞추면 덮어쓴다. 데스크도 한다. */
   r.post('/passes/:id/adjust', async (c) => {
