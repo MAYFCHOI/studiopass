@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import type { State, Store, Me, Member, Instructor, Pass, Attendance, SettlementLine, SettlementDetail, ScanFail, ImportResult, AssignResult, MemberHistory } from '../types';
+import type { State, Store, Me, Member, Instructor, Pass, Attendance, SettlementLine, SettlementDetail, ScanFail, ImportResult, AssignResult, MemberHistory, Substitution } from '../types';
 import { api, ApiError, isOffline } from '../api/client';
 import { activePassesOf } from '../lib/passes';
 import { newRequestKey } from '../lib/useBusy';
@@ -54,7 +54,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       lastRefresh = Date.now();
       set({
         me: { name: b.me.name, role: b.me.role, staffId: b.me.staffId },
-        studioName: b.studioName, needsRealPrices: !!b.needsRealPrices, alimtalkEnabled: b.alimtalkEnabled ?? false, tiers: b.tiers ?? [],
+        studioName: b.studioName, needsRealPrices: !!b.needsRealPrices, alimtalkEnabled: b.alimtalkEnabled ?? false, tiers: b.tiers ?? [], instructorDiscountPct: b.instructorDiscountPct ?? 50,
         members: b.members, instructors: b.instructors, courses: b.courses, products: b.products, passes: b.passes, payments: b.payments, attendances: b.attendances,
       });
     }
@@ -113,7 +113,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         set({ ...EMPTY, me: null });
       },
       addMember: (m, opts) => post<Member & { assigned: number }>('/members', m, idem(opts?.idempotencyKey)),
-      updateMember: (id, patch) => mutate(`/members/${id}`, { method: 'PATCH', body: { name: patch.name, phone: patch.phone, memo: patch.memo } }).then(() => {}),
+      updateMember: (id, patch) => mutate(`/members/${id}`, { method: 'PATCH', body: { name: patch.name, phone: patch.phone, memo: patch.memo, ...('since' in patch ? { since: patch.since ?? null } : {}) } }).then(() => {}),
       eraseMember: (id) => post(`/members/${id}/erase`).then(() => {}),
       erasePayer: (paymentId) => post(`/payments/${paymentId}/erase-payer`).then(() => {}),
       setPayerName: (paymentId, name) => post(`/payments/${paymentId}/payer-name`, { name }).then(() => {}),
@@ -170,6 +170,22 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         const r = await mutate409(`/payments/${paymentId}/cancel`, { method: 'POST' });
         return r.ok ? { ok: true } : { ok: false, used: r.used };
       },
+      editPayment: async (paymentId, patch) => {
+        const r = await mutate409(`/payments/${paymentId}/edit`, { method: 'POST', body: patch });
+        return r.ok ? { ok: true } : { ok: false, error: r.error, used: r.used };
+      },
+      paymentsTotal: async (month) => (await call<{ total: number }>(`/settlement/payments-total?month=${encodeURIComponent(month)}`)).total,
+      substitutions: (month) => call<Substitution[]>(`/substitutions?month=${encodeURIComponent(month)}`),
+      addSubstitution: async (x) => {
+        const r = await mutate409('/substitutions', { method: 'POST', body: x });
+        return r.ok ? { ok: true } : { ok: false, error: r.error };
+      },
+      removeSubstitution: (id) => mutate(`/substitutions/${id}`, { method: 'DELETE' }).then(() => {}),
+      deleteCourse: async (id) => {
+        const r = await mutate409(`/courses/${id}`, { method: 'DELETE' });
+        return r.ok ? { ok: true } : { ok: false, error: r.error, used: r.used };
+      },
+      saveInstructorDiscount: (pct) => put('/settings/instructor-discount', { pct }),
       linkRefund: async (refundId, originalId) => {
         const r = await mutate409(`/payments/${refundId}/refund-of`, { method: 'POST', body: { originalId } });
         return r.ok ? { ok: true } : { ok: false, error: r.error, used: r.used };

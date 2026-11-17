@@ -61,14 +61,17 @@ export function memberRoutes(d: Deps) {
 
   r.patch('/members/:id', async (c) => {
     const b = await body(c); const id = c.req.param('id');
-    if (!b || (b.name !== undefined && !(str(b.name) && maxLen(b.name, LIMITS.name))) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)) return bad(c);
+    if (!b || (b.name !== undefined && !(str(b.name) && maxLen(b.name, LIMITS.name))) || !optStr(b.phone) || !maxLen(b.phone, 30) || !optStr(b.memo) || !maxLen(b.memo, LIMITS.memo)
+      || (b.since !== undefined && b.since !== null && !(typeof b.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.since)))) return bad(c);
+    // 처음 온 날은 등급(기간 조건)을 바꾸므로 원장만
+    if (b.since !== undefined && c.get('me').role !== 'OWNER') return c.json({ error: 'OWNER_ONLY' }, 403);
     const m = db.prepare('select * from members where id=?').get(id) as any;
     if (!m) return notFound(c);
     if (m.erased_at) return erased(c);
     const phone = b.phone !== undefined ? normalizePhone(b.phone) : m.phone;
     const assigned = db.transaction(() => {
-      db.prepare('update members set name=?, phone=?, memo=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, phone, b.memo !== undefined ? b.memo : m.memo, id);
-      audit(db, c.get('me').staffId, 'member.update', 'member', id, { fields: Object.keys(b).filter((k) => ['name', 'phone', 'memo'].includes(k)) });
+      db.prepare('update members set name=?, phone=?, memo=?, since=? where id=?').run(b.name !== undefined ? b.name.trim() : m.name, phone, b.memo !== undefined ? b.memo : m.memo, b.since !== undefined ? b.since : m.since, id);
+      audit(db, c.get('me').staffId, 'member.update', 'member', id, { fields: Object.keys(b).filter((k) => ['name', 'phone', 'memo', 'since'].includes(k)) });
       return phone !== m.phone ? pickUpOpen(id, phone, c.get('me').staffId) : 0;
     })();
     return c.json({ ...memberOut(db, id)!, assigned, samePhone: samePhone(id, phone) });

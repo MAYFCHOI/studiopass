@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
-import type { SettlementLine, SettlementDetail, SettlementCourse } from '../types';
+import type { SettlementLine, SettlementDetail, SettlementCourse, Substitution } from '../types';
 import { won } from '../lib/util';
 import { downloadXlsx } from '../lib/excel';
 import { Icon } from '../components/Icon';
@@ -19,6 +19,10 @@ export default function Settlement() {
   const [attempt, setAttempt] = useState(0);
   const key = `${month}#${attempt}`;
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [subs, setSubs] = useState<Substitution[]>([]);
+  const [subsKey, setSubsKey] = useState(0); // 대강을 넣거나 지우면 올려서 정산·목록을 다시 받는다
+  useEffect(() => { let live = true; useStore.getState().substitutions(month).then((x) => { if (live) setSubs(x); }, () => {}); return () => { live = false; }; }, [month, subsKey]);
+  const [subOpen, setSubOpen] = useState(false);
   const failed = failedKey === key;
   useEffect(() => {
     let live = true;
@@ -28,7 +32,10 @@ export default function Settlement() {
       toast('정산을 불러오지 못했어요. 다시 시도해 주세요');
     });
     return () => { live = false; };
-  }, [month, attempt, s.attendances, s.instructors, s.passes]);
+  }, [month, attempt, s.attendances, s.instructors, s.passes, subsKey]);
+  // 그 달 결제 합계(결제 화면에서 옮겨 옴), 그 달 대강 목록
+  const [paid, setPaid] = useState<number | null>(null);
+  useEffect(() => { let live = true; useStore.getState().paymentsTotal(month).then((n) => { if (live) setPaid(n); }, () => {}); return () => { live = false; }; }, [month, s.payments]);
   const lines = [...raw].sort((a, b) => (sort === 'pay' ? b.instructorPay - a.instructorPay : a.instructor.name.localeCompare(b.instructor.name, 'ko')));
   const total = lines.reduce((n, l) => n + l.instructorPay, 0);
   const revenue = lines.reduce((n, l) => n + l.revenue, 0);
@@ -81,6 +88,7 @@ export default function Settlement() {
         <h1 className="settle-total num">{won(total)}</h1>
       </header>
       <div className="figures">
+        <div className="fig"><b className="num">{paid === null ? '…' : won(paid)}</b><span>이달 결제</span></div>
         <div className="fig"><b className="num">{won(revenue)}</b><span>출석 기준 매출</span></div>
         <div className="fig"><b className="num">{won(academy)}</b><span>학원 몫</span></div>
         <div className="fig"><b className="num">{sessions}</b><span>수업 횟수</span></div>
@@ -111,28 +119,45 @@ export default function Settlement() {
         {shown.length > 0 && <p className="sub lg-idle">강사 줄을 누르면 수업별·날짜별 계산이 나와요.</p>}
       </div>}
 
+      <section className="block">
+        <div className="ledger-tools" style={{ marginTop: 8 }}><h2 style={{ margin: 0 }}>대강</h2><button className="btn sm" onClick={() => setSubOpen(true)}>대강 넣기</button></div>
+        {subs.length === 0 ? <p className="sub">이달 대강이 없어요. 다른 강사가 수업을 맡은 날을 넣으면 그 날 출석과 1타임이 대강 강사에게 정산돼요.</p> : (
+          <div className="list">
+            {subs.map((x) => { const c = s.courses.find((y) => y.id === x.courseId); const who = s.instructors.find((i) => i.id === x.instructorId)?.name ?? '?'; const orig = s.instructors.find((i) => i.id === c?.instructorId)?.name;
+              return (
+                <div className="row" key={x.id}>
+                  <div className="main"><div className="t">{dayjs(x.date).format('M/D (dd)')} {c ? `${c.startTime} ${c.name}` : '지운 수업'}</div><div className="d">{orig ? `${orig} → ` : ''}{who}{x.fee != null ? ` · 1타임 ${won(x.fee)}` : ''}</div></div>
+                  <div className="right"><button className="chip" onClick={() => { if (confirm('이 대강을 지울까요? 그 날은 원래 강사 정산으로 돌아가요.')) void s.removeSubstitution(x.id).then(() => { setSubsKey((n) => n + 1); toast('지웠어요'); }, () => {}); }}>지우기</button></div>
+                </div>
+              ); })}
+          </div>
+        )}
+      </section>
+
       <div className="note">정산 계산 기준
         <ul>
           <li>비율제: 출석 1회 가치 = 수강권 가격 ÷ 총 회차. 이달 출석분만 더해 강사 비율로 나눠요.</li>
           <li>타임제: 출석이 1명 이상 있던 수업 1회 = 1타임. 수강권 매출은 전액 학원.</li>
           <li>전문반 월정액 출석은 금액으로 바꾸지 않고 강사별 횟수만 세요.</li>
           <li>수업에 정산 방식을 따로 정하면(설정 → 수업) 그 수업만 그 방식으로 계산하고 강사별로 더해요.</li>
+          <li>대강한 날은 그 날 출석·원데이와 1타임이 대강 강사 몫이에요. 1타임 금액을 적으면 그 금액, 비우면 수업(없으면 대강 강사) 정산 방식을 따라요.</li>
         </ul>
       </div>
       {open && <InstructorDetail line={open} month={label.format('YYYY년 M월')} onClose={() => setOpen(null)} />}
+      {subOpen && <SubSheet month={month} onClose={() => setSubOpen(false)} onSaved={() => { setSubOpen(false); setSubsKey((n) => n + 1); }} />}
     </div>
   );
 }
 
 const DAY = '일월화수목금토';
-const courseLabel = (c: SettlementCourse) => `${DAY[c.weekday]} ${c.startTime} ${c.name}`;
+const courseLabel = (c: SettlementCourse) => `${DAY[c.weekday]} ${c.startTime} ${c.name}${c.sub ? ' (대강)' : ''}`;
 const courseTerm = (c: SettlementCourse) => (c.type === 'RATIO' ? `비율제 ${c.ratioInstructor}%` : `타임제 ${won(c.perSessionFee)}`);
 const formula = (c: SettlementCourse) => {
   const b = c.bonus ?? 0; const base = c.instructorPay - b;
   const plus = b ? ` + 출석 추가 페이 ${won(b)} = ${won(c.instructorPay)}` : '';
   return c.type === 'RATIO'
     ? `매출 ${won(c.revenue)} × ${c.ratioInstructor}% = ${won(base)}${plus}`
-    : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(base)}${plus} (매출 ${won(c.revenue)}은 학원)`;
+    : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(base)}${plus}`;
 };
 
 /** 강사 한 명의 그 달 계산: 수업별 조건과 식, 날짜별 출석한 사람과 1회 금액. 합계가 정산 화면의 강사 지급과 같다 */
@@ -144,20 +169,53 @@ function InstructorDetail({ line, month, onClose }: { line: SettlementLine; mont
       <p className="sub" style={{ margin: '0 0 12px' }}>수업 {line.sessions}타임 · 출석 {line.heads}명 · 매출 {won(line.revenue)}</p>
       {line.courses.length === 0 && <p className="sub">이달 출석이 없어요.</p>}
       {line.courses.map((c) => (
-        <section className="sd-course" key={c.courseId}>
-          <div className="sd-head"><b>{courseLabel(c)}</b><span>{courseTerm(c)}{c.custom ? ' · 이 수업만' : ''}</span></div>
+        <section className="sd-course" key={c.courseId + (c.sub ? '#sub' : '')}>
+          <div className="sd-head"><b>{courseLabel(c)}</b><span>{courseTerm(c)}{c.sub ? ' · 대강' : c.custom ? ' · 이 수업만' : ''}</span></div>
           <div className="sd-formula num">{formula(c)}</div>
           {c.proTickets > 0 && <p className="sub" style={{ margin: '0 0 6px' }}>전문반 출석 {c.proTickets}회는 매출 0원으로 셌어요{c.bonus ? '. 출석 추가 페이는 강사 몫에 따로 더했어요' : ''}.</p>}
           <div className="sd-days">
             {c.days.map((d) => (
               <div className="sd-day" key={d.date}>
                 <div className="sd-date"><b>{dayjs(d.date).format('M/D')}</b><span>{d.heads}명 · {won(d.revenue)}</span></div>
-                <div className="sd-people">{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>} <span className="num">{won(p.value)}{p.bonus ? ` +${won(p.bonus)}` : ''}</span></span>)}</div>
+                <div className="sd-people">{d.people.length === 0 && <span>출석 기록 없음</span>}{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>}{p.paidOn && <em>{dayjs(p.paidOn).format('M/D')} 결제</em>} <span className="num">{won(p.value)}{p.bonus ? ` +${won(p.bonus)}` : ''}</span></span>)}</div>
               </div>
             ))}
           </div>
         </section>
       ))}
+    </Sheet>
+  );
+}
+
+/** 대강 넣기: 수업·날짜(그 수업 요일)·맡은 강사, 1타임 금액(선택) */
+function SubSheet({ month, onClose, onSaved }: { month: string; onClose: () => void; onSaved: () => void }) {
+  const s = useStore();
+  const [courseId, setCourseId] = useState('');
+  const course = s.courses.find((c) => c.id === courseId);
+  const days = course ? Array.from({ length: dayjs(month + '-01').daysInMonth() }, (_, i) => dayjs(month + '-01').add(i, 'day')).filter((d) => d.day() === course.weekday[0]).map((d) => d.format('YYYY-MM-DD')) : [];
+  const [date, setDate] = useState('');
+  const [ins, setIns] = useState('');
+  const [fee, setFee] = useState('');
+  const [busy, setBusy] = useState(false);
+  const courses = s.courses.filter((c) => !c.deleted && c.kind === 'GENERAL').sort((a, b) => a.weekday[0] - b.weekday[0] || a.startTime.localeCompare(b.startTime));
+  const save = async () => {
+    setBusy(true);
+    try {
+      const n = Number(fee.replace(/\D/g, ''));
+      const r = await s.addSubstitution({ courseId, date, instructorId: ins, ...(fee.trim() ? { fee: n } : {}) });
+      if (r.ok) { toast('대강을 넣었어요'); onSaved(); } else toast(r.error === 'SAME_INSTRUCTOR' ? '원래 강사와 같아요. 다른 강사를 골라 주세요' : r.error === 'WRONG_DAY' ? '그 수업 요일이 아니에요' : '넣지 못했어요');
+    } catch { /* 스토어가 알린다 */ } finally { setBusy(false); }
+  };
+  return (
+    <Sheet onClose={onClose} title="대강 넣기">
+      <p className="sub">다른 강사가 수업을 맡은 날을 넣으면 그 날 출석·원데이와 1타임이 대강 강사에게 정산돼요. 출석이 없어도 1타임으로 세요.</p>
+      <div className="field"><label>수업</label><select className="input" value={courseId} onChange={(e) => { setCourseId(e.target.value); setDate(''); }}>
+        <option value="">고르기</option>{courses.map((c) => <option key={c.id} value={c.id}>{DAY[c.weekday[0]]} {c.startTime} {c.name}{c.note ? ` · ${c.note}` : ''} · {s.instructors.find((i) => i.id === c.instructorId)?.name ?? ''}{c.active === false ? ' · 쉬는 중' : ''}</option>)}
+      </select></div>
+      {course && <div className="field"><label>날짜</label><div className="seg" style={{ flexWrap: 'wrap' }}>{days.map((d) => <button key={d} aria-pressed={date === d} onClick={() => setDate(d)}>{dayjs(d).format('M/D')}</button>)}</div></div>}
+      <div className="field"><label>맡은 강사</label><select className="input" value={ins} onChange={(e) => setIns(e.target.value)}><option value="">고르기</option>{s.instructors.filter((i) => i.active !== false && i.id !== course?.instructorId).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></div>
+      <div className="field"><label>그 날 1타임 금액 (비우면 수업 정산 방식대로)</label><input className="input" inputMode="numeric" placeholder={course?.settlementType === 'PER_SESSION' ? `수업 기준 ${won(course.perSessionFee ?? 0)}` : '예: 50000'} value={fee} onChange={(e) => setFee(e.target.value)} /></div>
+      <button className="btn primary wide" disabled={busy || !courseId || !date || !ins} onClick={() => { void save(); }}>{busy ? '저장 중…' : '대강 넣기'}</button>
     </Sheet>
   );
 }

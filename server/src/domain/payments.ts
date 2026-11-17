@@ -242,6 +242,50 @@ export function markDropInPayments(db: Db, productId: string) {
   for (const p of open) if (findProduct(db, p.product_name)?.id === productId) { mark.run(p.id); n++; }
   return n;
 }
+export type PaymentEdit = { productName?: string; amount?: number; method?: string | null; paidAt?: string; courseId?: string | null; payerName?: string };
+export type EditError = 'NOT_FOUND' | 'CANCELLED' | 'KIOSK';
+/**
+ * 직접 넣은 결제(현금·이체) 고치기: 상품·금액·받은 방법·받은 날·원데이 수업·손님 이름.
+ * - 상품이나 받은 날이 바뀌면 수강권을 새로 만든다(회원에게 연결된 결제). 그 수강권으로 출석했으면 PassInUseError.
+ * - 금액만 바뀌면 수강권 가격만 고친다(출석했어도 된다, 정산 1회 금액이 같이 바뀐다).
+ * - 키오스크 결제는 토스가 보낸 값이라 고치지 않는다(KIOSK).
+ */
+export function editPayment(db: Db, paymentId: string, e: PaymentEdit, staffId: string | null) {
+  return db.transaction((): { ok: true; passId: string | null } | { ok: false; error: EditError } => {
+    const p = db.prepare('select * from payments where id=?').get(paymentId) as any;
+    if (!p) return { ok: false, error: 'NOT_FOUND' };
+    if (p.status !== 'APPROVED') return { ok: false, error: 'CANCELLED' };
+    if (p.source !== 'MANUAL') return { ok: false, error: 'KIOSK' };
+    const product = e.productName?.trim() || p.product_name;
+    const amount = e.amount === undefined ? p.amount : Math.round(e.amount);
+    const paidAt = e.paidAt ? new Date(e.paidAt).toISOString() : p.paid_at;
+    const method = e.method === undefined ? p.method : e.method;
+    const remake = product !== p.product_name || kstDate(new Date(paidAt)) !== kstDate(new Date(p.paid_at));
+    let passId: string | null = p.pass_id;
+    if (passId && remake) {
+      const used = usedCount(db, p.id, passId);
+      if (used > 0) throw new PassInUseError(used);
+      deletePasses(db, p.id, passId); passId = null;
+    }
+    const drop = isDropIn(db, product) ? 1 : 0;
+    // 원데이 수업은 회원 없는 원데이에만 둔다. 상품이 바뀌면 예전 수업은 버리고 새로 고른 값만 쓴다
+    const courseId = drop && !p.member_id ? (e.courseId !== undefined ? e.courseId : product === p.product_name ? p.course_id : null) : null;
+    const payer = e.payerName !== undefined && !p.member_id ? (e.payerName.trim() || null) : p.payer_name;
+    db.prepare('update payments set product_name=?, amount=?, paid_at=?, method=?, drop_in=?, course_id=?, payer_name=?, pass_id=? where id=?')
+      .run(product, amount, paidAt, method ?? null, drop, courseId, payer, passId, p.id);
+    if (p.member_id && !passId) {
+      passId = createPass(db, p.id, p.member_id, product, paidAt, amount);
+      db.prepare('update payments set pass_id=? where id=?').run(passId, p.id);
+    } else if (passId && amount !== p.amount) {
+      const ids = paymentPasses(db, p.id, passId);
+      const many = ids.length > 1 ? splitProducts(db, product) : null;
+      const prices = many && many.length === ids.length ? splitAmount(amount, many.map((x) => x.price)) : null;
+      ids.forEach((id, i) => db.prepare('update passes set price=? where id=?').run(prices ? prices[i] : ids.length === 1 ? amount : Math.round(amount / ids.length), id));
+    }
+    audit(db, staffId, 'payment.edit', 'payment', p.id, { from: { product: p.product_name, amount: p.amount, paidAt: p.paid_at, method: p.method, courseId: p.course_id }, to: { product, amount, paidAt, method, courseId }, remade: remake && !!p.member_id });
+    return { ok: true, passId };
+  })();
+}
 export function setPayerName(db: Db, paymentId: string, name: string, staffId: string | null) {
   const n = db.prepare('update payments set payer_name=? where id=? and member_id is null').run(name.trim(), paymentId).changes;
   if (n) audit(db, staffId, 'payment.payer_name', 'payment', paymentId);

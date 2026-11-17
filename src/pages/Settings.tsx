@@ -32,18 +32,19 @@ function TierEditor() {
   const save = async () => {
     if (!draft || problem || busy) return;
     setBusy(true);
-    try { await s.saveTiers(draft.map((t, i) => ({ name: t.name.trim(), minCount: i === 0 ? 0 : t.minCount }))); setDraft(null); toast('등급 기준을 저장했어요'); } catch { /* 스토어가 알린다 */ } finally { setBusy(false); }
+    try { await s.saveTiers(draft.map((t, i) => ({ name: t.name.trim(), minCount: i === 0 ? 0 : t.minCount, ...(i > 0 && t.minYears ? { minYears: t.minYears } : {}) }))); setDraft(null); toast('등급 기준을 저장했어요'); } catch { /* 스토어가 알린다 */ } finally { setBusy(false); }
   };
   return (
     <>
       <h2>등급 기준</h2>
-      <p className="sub">누적 출석이 이 횟수가 되면 그 등급으로 올라가요. 회원 페이지에 보이는 등급이에요. 특정 회원은 회원 화면에서 직접 올릴 수 있어요.</p>
+      <p className="sub">누적 출석이 이 횟수가 되면 그 등급으로 올라가요. 기간을 적은 등급은 다닌 기간(회원 화면의 처음 온 날부터)도 채워야 해요. 회원 페이지에 보이는 등급이에요. 특정 회원은 회원 화면에서 직접 올릴 수 있어요.</p>
       <div className="list">
         {tiers.map((t, i) => (
           <div className="row tier-edit" key={i}>
             <input className="input" aria-label={`${i + 1}번째 등급 이름`} value={t.name} onChange={(e) => set(i, { name: e.target.value })} />
             {i === 0 ? <span className="sub">처음부터</span>
-              : <label className="sub">출석 <input className="input" inputMode="numeric" aria-label={`${t.name} 출석 횟수`} value={t.minCount} onChange={(e) => set(i, { minCount: Number(e.target.value.replace(/\D/g, '')) || 0 })} style={{ width: 64, display: 'inline-block' }} />회부터</label>}
+              : <span className="sub"><label>출석 <input className="input" inputMode="numeric" aria-label={`${t.name} 출석 횟수`} value={t.minCount} onChange={(e) => set(i, { minCount: Number(e.target.value.replace(/\D/g, '')) || 0 })} style={{ width: 64, display: 'inline-block' }} />회</label>
+                  {' + '}<label>다닌 지 <input className="input" inputMode="numeric" aria-label={`${t.name} 기간(년)`} placeholder="-" value={t.minYears ?? ''} onChange={(e) => set(i, { minYears: Number(e.target.value.replace(/\D/g, '')) || undefined })} style={{ width: 48, display: 'inline-block' }} />년 이상</label></span>}
             {i > 0 && i === tiers.length - 1 && <button className="btn sm ghost" onClick={() => setDraft(tiers.slice(0, -1))}>빼기</button>}
           </div>
         ))}
@@ -54,6 +55,24 @@ function TierEditor() {
         {draft && <button className="btn sm primary" disabled={!!problem || busy} onClick={() => { void save(); }}>{busy ? '저장 중…' : '저장'}</button>}
       </div>
       {draft && problem && <p className="sub" role="alert">{problem}</p>}
+    </>
+  );
+}
+
+/** 강사 특전: 수업을 들을 때 할인율. 현금·이체 결제 넣기에서 '강사 할인' 을 누르면 정가에서 이만큼 깎는다 */
+function DiscountEditor() {
+  const s = useStore();
+  const cur = s.instructorDiscountPct ?? 50;
+  const [v, setV] = useState<string | null>(null);
+  const n = Number((v ?? '').replace(/\D/g, ''));
+  return (
+    <>
+      <h2>강사 할인</h2>
+      <p className="sub">강사가 수업을 들을 때 할인율이에요. 결제 → 현금·이체 결제 넣기에서 '강사 할인' 을 누르면 정가에서 이만큼 깎아 넣어요. 키오스크로 받을 때는 토스 포스에서 할인을 적용해 주세요.</p>
+      <div className="btn-row">
+        <label className="sub">할인 <input className="input" inputMode="numeric" aria-label="강사 할인율" value={v ?? cur} onChange={(e) => setV(e.target.value)} style={{ width: 64, display: 'inline-block' }} />%</label>
+        {v !== null && <button className="btn sm primary" disabled={!(n >= 1 && n <= 100)} onClick={() => { void s.saveInstructorDiscount(n).then(() => { setV(null); toast('강사 할인율을 저장했어요'); }, () => {}); }}>저장</button>}
+      </div>
     </>
   );
 }
@@ -72,10 +91,10 @@ export default function Settings() {
       <h2>수업 시간표</h2>
       <p className="sub">칸을 누르면 수업을 고칠 수 있어요. 시간표에서 안 보이는 수업은 아래 수업 전체 목록에서 찾으세요.</p>
       <Timetable onPick={(c) => setEdit({ kind: 'course', v: { ...c } })} />
-      <button className="btn sm ghost" style={{ marginTop: 12 }} aria-expanded={allCourses} onClick={() => setAllCourses((v) => !v)}>{allCourses ? '수업 목록 접기' : `수업 전체 목록 (${s.courses.length})`}</button>
+      <button className="btn sm ghost" style={{ marginTop: 12 }} aria-expanded={allCourses} onClick={() => setAllCourses((v) => !v)}>{allCourses ? '수업 목록 접기' : `수업 전체 목록 (${s.courses.filter((c) => !c.deleted).length})`}</button>
       {allCourses && (
         <div className="list">
-          {[...s.courses].sort((a, b) => Number(off(a)) - Number(off(b)) || (a.weekday[0] ?? 9) - (b.weekday[0] ?? 9) || a.startTime.localeCompare(b.startTime)).map((c) => (
+          {s.courses.filter((c) => !c.deleted).sort((a, b) => Number(off(a)) - Number(off(b)) || (a.weekday[0] ?? 9) - (b.weekday[0] ?? 9) || a.startTime.localeCompare(b.startTime)).map((c) => (
             <button className="row" key={c.id} style={off(c) ? { opacity: .6 } : undefined} onClick={() => setEdit({ kind: 'course', v: { ...c } })}>
               <div className="main"><div className="t">{courseTitle(s, c)}</div><div className="d">{c.weekday.map((w) => '일월화수목금토'[w]).join('·')}요일 · {courseMeta(c)}{c.settlementType && ` · 정산 ${c.settlementType === 'RATIO' ? `비율제 ${c.ratioInstructor ?? 0}%` : `타임제 ${won(c.perSessionFee ?? 0)}`}`}{off(c) && ' · 쉬는 중 (시간표·출석에서 빠짐)'}</div></div>
             </button>
@@ -109,6 +128,8 @@ export default function Settings() {
       <button className="btn sm" style={{ marginTop: 10 }} onClick={() => setEdit({ kind: 'product', v: { id: newId(), name: '', passKind: 'COUNT', count: 8, periodDays: 60, price: 180000 } })}>상품 추가</button>
 
       <TierEditor />
+
+      <DiscountEditor />
 
       <h2>이 프로토타입이 가정한 것</h2>
       <div className="note">
@@ -181,6 +202,16 @@ export default function Settings() {
           })()}
           <ActiveField what="수업" active={!off(edit.v)} onChange={(v) => setEdit({ kind: 'course', v: { ...edit.v, active: v } })} />
           <button className="btn primary wide" disabled={!edit.v.name.trim()} onClick={() => { s.upsertCourse(edit.v).then(saved, () => {}); }}>저장</button>
+          {s.courses.some((c) => c.id === edit.v.id) && (
+            <button className="btn ghost wide" style={{ marginTop: 8 }} onClick={() => {
+              if (!confirm('이 수업을 지울까요? 시간표·목록·고르는 칸에서 사라져요. 지난 출석과 정산 기록은 남아요.')) return;
+              void s.deleteCourse(edit.v.id).then((r) => {
+                if (r.ok) { setEdit(null); toast('수업을 지웠어요'); return; }
+                const names = s.products.filter((p) => p.courseId === edit.v.id && p.active !== false).map((p) => p.name).join(', ');
+                toast(r.error === 'PRODUCTS' ? `이 수업에 묶인 상품(${names})이 있어요. 상품의 수업을 다른 수업으로 바꾸거나 상품을 쉬게 한 뒤 지워 주세요` : '지우지 못했어요');
+              }, () => {});
+            }}>수업 지우기</button>
+          )}
         </Sheet>
       )}
       {edit?.kind === 'product' && (

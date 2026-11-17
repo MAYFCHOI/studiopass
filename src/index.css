@@ -403,7 +403,11 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .settle-page .month button { width: 36px; height: 36px; background: transparent; border: 2px solid var(--ink); border-radius: 6px; font-weight: 800; }
 .settle-page .hero { margin: 14px 0 16px; }
 .settle-total { margin: 2px 0 0; font-family: var(--display); font-stretch: 112%; font-weight: 900; font-size: clamp(40px, 11vw, 96px); line-height: .95; }
-.settle-page .fig b { font-size: 22px; }
+.settle-page .figures { display: grid; grid-template-columns: 1fr 1fr; }
+.settle-page .fig, .settle-page .fig + .fig { border-left: 0; padding-left: 0; }
+.settle-page .fig:nth-child(even) { border-left: 2px solid var(--ink); padding-left: 16px; }
+/* 금액 길이와 상관없이 네 숫자를 같은 크기로, 줄바꿈 없이 */
+.settle-page .fig b { font-size: clamp(17px, 5.2vw, 22px); white-space: nowrap; }
 .ledger-tools { display: flex; align-items: center; justify-content: space-between; margin: 28px 0 8px; }
 .ledger { border-top: 2px solid var(--ink); }
 .lg-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
@@ -429,6 +433,8 @@ button.cc[aria-pressed="true"] .cc-lv { color: var(--floor); }
 .sd-people { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
 .sd-people em { font-style: normal; font-size: 11px; margin-left: 4px; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--mute); }
 @media (min-width: 900px) {
+  .settle-page .figures { grid-template-columns: repeat(4, 1fr); }
+  .settle-page .fig:nth-child(n+2) { border-left: 2px solid var(--ink); padding-left: 24px; }
   .settle-page .fig b { font-size: 30px; }
   .lg-row { grid-template-columns: 1.4fr 1.2fr .7fr .7fr 1fr 1fr 1.1fr; gap: 12px; padding: 14px 0; }
   .lg-row > * { grid-column: auto !important; grid-row: auto !important; }

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
-import { needsCourse } from '../lib/dropin';
 import type { Tab } from '../App';
 import { WEEKDAYS } from '../lib/util';
 import { ClassCard } from '../components/ClassCard';
@@ -16,7 +15,8 @@ export default function Today({ go }: { go: (t: Tab, arg?: string) => void }) {
   const todayAtt = s.attendances.filter((a) => !a.cancelledAt && dayjs(a.attendedAt).format('YYYY-MM-DD') === t);
   // 결제 탭 '확인 필요'와 같은 기준: 회원이 없는 결제. 단 이름을 적은 원데이는 끝난 것.
   // 결제 화면의 확인 필요와 같은 기준: 원데이는 이름(웜업처럼 수업 없는 상품은 수업까지) 적으면 끝
-  const unassigned = s.payments.filter((p) => p.status === 'APPROVED' && !p.memberId && !(p.dropIn && p.payerName && !(needsCourse(s, p) && !p.courseId)));
+  // 원데이(이름 없음·수업 고르기)는 빼고 정규 수강권 결제만 센다(선생님 요청 11-17). 원데이는 결제 화면에서 본다
+  const unassigned = s.payments.filter((p) => p.status === 'APPROVED' && !p.dropIn && (!p.memberId || !p.passId));
   const wd = dayjs().day();
   const live = s.courses.filter((c) => c.active !== false); // 쉬는 수업은 오늘 화면에 안 보인다
   const classes = live.filter((c) => c.weekday.includes(wd)).sort((a, b) => a.startTime.localeCompare(b.startTime));

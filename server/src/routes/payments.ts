@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { newId, nowIso, normalizePhone } from '../util.js';
 import { audit } from '../audit.js';
-import { type PaymentInput, ingestPayments, isDropIn, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, PassInUseError, AssignError } from '../domain/payments.js';
+import { type PaymentInput, ingestPayments, isDropIn, assignPayment, cancelPayment, linkRefund, clearReview, setPayerName, revertBatch, editPayment, PassInUseError, AssignError } from '../domain/payments.js';
 import { idemKey, idemGet, idemPut } from '../idempotency.js';
 import { toPayment } from '../serialize.js';
 import { passNotifier } from '../notify/link.js';
@@ -59,7 +59,7 @@ export function paymentRoutes(d: Deps) {
   // Manual single entry. Linked to memberId when given, otherwise to the only member with the payer's phone (same rule as import).
   r.post('/payments', async (c) => {
     const b = await body(c);
-    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && !METHODS.includes(b.method)) || !optStr(b.courseId)) return bad(c);
+    if (!b || !num(b.amount) || !str(b.productName) || !maxLen(b.productName, LIMITS.productName) || !optStr(b.payerName) || !maxLen(b.payerName, LIMITS.payerName) || !optStr(b.payerPhone) || !optStr(b.memberId) || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && !METHODS.includes(b.method)) || !optStr(b.courseId) || (b.discountPct !== undefined && b.discountPct !== null && !(Number.isInteger(b.discountPct) && b.discountPct > 0 && b.discountPct <= 100))) return bad(c);
     if (b.courseId && !db.prepare('select 1 from courses where id=?').get(b.courseId)) return bad(c);
     if (b.memberId && !db.prepare('select 1 from members where id=?').get(b.memberId)) return notFound(c);
     if (b.memberId && isErased(db, b.memberId)) return c.json({ error: 'ERASED' }, 409);
@@ -70,8 +70,8 @@ export function paymentRoutes(d: Deps) {
     const id = db.transaction(() => {
       const id = newId();
       const drop = isDropIn(db, b.productName) ? 1 : 0;
-      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in,course_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, drop, drop && !b.memberId ? (b.courseId ?? null) : null);
+      db.prepare('insert into payments(id,source,external_id,paid_at,amount,payer_name,payer_phone,product_name,status,created_by,created_at,method,drop_in,course_id,discount_pct) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, 'MANUAL', null, b.paidAt ? new Date(b.paidAt).toISOString() : nowIso(clock(d)), Math.round(b.amount), b.payerName?.trim() || null, phone, b.productName, 'APPROVED', staffId, nowIso(), b.method ?? null, drop, drop && !b.memberId ? (b.courseId ?? null) : null, b.discountPct ?? null);
       audit(db, staffId, 'payment.manual', 'payment', id);
       let memberId: string | undefined = b.memberId ?? undefined;
       if (!memberId && phone) { const m = db.prepare('select id from members where phone=?').all(phone) as { id: string }[]; if (m.length === 1) memberId = m[0].id; }
@@ -130,6 +130,23 @@ export function paymentRoutes(d: Deps) {
     if (b.courseId && !db.prepare('select 1 from courses where id=?').get(b.courseId)) return bad(c);
     db.prepare('update payments set course_id=? where id=?').run(b.courseId, id);
     audit(db, c.get('me').staffId, 'payment.course', 'payment', id, { from: p.course_id, to: b.courseId });
+    return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
+  });
+
+  // 직접 넣은 결제 고치기(원장). 상품·받은 날이 바뀌면 수강권을 다시 만든다(출석했으면 409 PASS_IN_USE).
+  r.post('/payments/:id/edit', ownerOnly, async (c) => {
+    const b = await body(c); const id = c.req.param('id');
+    if (!b || (b.amount !== undefined && !num(b.amount)) || (b.productName !== undefined && !(str(b.productName) && maxLen(b.productName, LIMITS.productName)))
+      || (b.paidAt !== undefined && !(str(b.paidAt) && !Number.isNaN(Date.parse(b.paidAt)))) || (b.method !== undefined && b.method !== null && !METHODS.includes(b.method))
+      || (b.courseId !== undefined && b.courseId !== null && !str(b.courseId)) || (b.payerName !== undefined && !(typeof b.payerName === 'string' && maxLen(b.payerName, LIMITS.payerName)))) return bad(c);
+    if (b.courseId && !db.prepare('select 1 from courses where id=?').get(b.courseId)) return bad(c);
+    try {
+      const r = editPayment(db, id, b, c.get('me').staffId);
+      if (!r.ok) return r.error === 'NOT_FOUND' ? notFound(c) : c.json({ error: r.error }, 409);
+    } catch (e) {
+      if (e instanceof PassInUseError) return c.json({ error: 'PASS_IN_USE', used: e.used }, 409);
+      throw e;
+    }
     return c.json(toPayment(db.prepare('select * from payments where id=?').get(id), c.get('me').role));
   });
 

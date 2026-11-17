@@ -20,18 +20,18 @@ export function publicRoutes(d: Deps) {
   r.get('/public/m/:token', (c) => {
     c.header('Cache-Control', 'no-store');
     const memberId = memberIdForToken(db, c.req.param('token'));
-    const m = memberId ? (db.prepare('select id, name, created_at from members where id=? and erased_at is null').get(memberId) as { id: string; name: string; created_at: string } | undefined) : undefined;
+    const m = memberId ? (db.prepare('select id, name, created_at, since from members where id=? and erased_at is null').get(memberId) as { id: string; name: string; created_at: string; since: string | null } | undefined) : undefined;
     if (!m) return c.json({ error: 'NOT_FOUND' }, 404);
     const today = kstDate(clock(d));
-    const tier = tierFor(db, m.id);
+    const tier = tierFor(db, m.id, clock(d));
     const passes = db.prepare('select p.remaining, p.total_count, p.valid_to, p.kind, pr.name from passes p join products pr on pr.id=p.product_id where p.member_id=? and p.remaining > 0 and p.valid_from <= ? and p.valid_to >= ? order by p.valid_to').all(m.id, today, today) as any[];
     return c.json({
       studioName: (db.prepare("select value from settings where key='studio_name'").get() as { value: string } | undefined)?.value ?? '',
       name: maskName(m.name),
-      since: kstDate(new Date(m.created_at)),
+      since: m.since ?? kstDate(new Date(m.created_at)),
       attendCount: tier.count,
       tier,
-      tiers: (db.prepare('select name, min_count from tiers order by sort').all() as any[]).map((t) => ({ name: t.name, minCount: t.min_count })),
+      tiers: (db.prepare('select name, min_count, min_years from tiers order by sort').all() as any[]).map((t) => ({ name: t.name, minCount: t.min_count, ...(t.min_years ? { minYears: t.min_years } : {}) })),
       passes: passes.map((p) => ({ name: p.name, remaining: p.remaining, total: p.total_count, validTo: p.valid_to, kind: p.kind })),
       qr: qrPayload(db, m.id),
     });

@@ -16,6 +16,7 @@ export interface Member {
   memo?: string;
   tier?: { name: string; level: number; count: number; manual?: boolean }; // 서버가 계산. manual = 원장이 올린 등급
   tierFloor?: number; // 원장이 정한 최소 등급(1부터)
+  since?: string; // 처음 다니기 시작한 날(YYYY-MM-DD). 없으면 등록일. 등급 기간 조건에 쓴다
   erased?: boolean; // 개인정보 파기됨(이름 '삭제된 회원', 전화·메모 없음). 출석·결제 기록만 남는다
 }
 
@@ -43,6 +44,7 @@ export interface Course {
   durationMin: number;
   color?: string;
   active?: boolean;
+  deleted?: boolean; // 지운 수업(목록·시간표에서 빠짐, 지난 기록용)
   // 수업별 정산 조건. 없으면 강사 기본(한 강사가 비율제·타임제 수업을 같이 할 때). DESK 에게는 없음
   settlementType?: SettlementType;
   ratioInstructor?: number;
@@ -76,6 +78,7 @@ export interface Payment {
   dropIn?: boolean; // 적재 당시 원데이 상품이었던 결제
   method?: PayMethod;
   courseId?: string; // 원데이 결제의 수업(상품에 수업이 없을 때 사람이 고름). 정산은 이 수업 강사 몫
+  discountPct?: number; // 강사 할인 등으로 깎아 받은 비율(%)
   passId?: string; // pass created
   /** 확인 필요 표시. REFUND_IN_USE: 환불됐지만 출석 기록이 있어 승인으로 남음, REFUND_UNMATCHED: 원 결제를 못 찾은 환불 행,
    *  REFUND_SUGGESTED: 원 결제 후보가 하나(refundSuggestedOf). 승인번호가 다른 환불은 사람이 확정할 때만 원 결제를 취소한다 */
@@ -127,11 +130,13 @@ export interface State {
   needsRealPrices: boolean;
   alimtalkEnabled?: boolean; // 없으면 false
   tiers?: Tier[];
+  instructorDiscountPct?: number; // 강사 특전 할인율(%), 기본 50
 }
 
 export type Role = 'OWNER' | 'DESK';
 export interface Me { name: string; role: Role; staffId?: string }
-export interface Tier { name: string; minCount: number }
+/** minYears: 다닌 기간 조건(년). 출석 횟수와 같이 채워야 그 등급 */
+export interface Tier { name: string; minCount: number; minYears?: number }
 
 /** 서버 출석 실패 코드 + 화면에서만 생기는 코드(NO_COURSE, OFFLINE, ERROR). 문구는 lib/reasons.ts */
 export type ScanFail = 'UNKNOWN_QR' | 'UNKNOWN_MEMBER' | 'UNKNOWN_COURSE' | 'INACTIVE_COURSE' | 'ALREADY' | 'PRO_ONLY' | 'EMPTY' | 'EXPIRED' | 'NO_PASS' | 'NO_COURSE' | 'OFFLINE' | 'ERROR';
@@ -155,9 +160,9 @@ export interface SettlementLine {
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
 export interface SettlementCourse {
   courseId: string; name: string; weekday: number; startTime: string;
-  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean;
+  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean; sub?: boolean;
   sessions: number; heads: number; revenue: number; instructorPay: number; bonus?: number; proTickets: number; dropIns: number;
-  days: { date: string; heads: number; revenue: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number }[] }[];
+  days: { date: string; heads: number; revenue: number; sub?: boolean; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number; paidOn?: string }[] }[];
 }
 
 export type ImportResult = {
@@ -179,8 +184,12 @@ export interface SettlementDetail {
   payments: { paidAt: string; member: string | null; payerName: string | null; productName: string; amount: number; status: Payment['status']; source: Payment['source']; externalId: string | null }[];
 }
 
+/** 대강: 그 날 그 수업을 다른 강사가 맡음. 그 날 출석·원데이 매출과 1타임이 대강 강사 몫이 된다 */
+export interface Substitution { id: string; courseId: string; date: string; instructorId: string; fee?: number }
+export interface PaymentPatch { productName?: string; amount?: number; method?: PayMethod | null; paidAt?: string; courseId?: string | null; payerName?: string }
+
 /** 직접 입력. memberId 가 없으면 원데이 손님(이름만). */
-export interface NewPayment { memberId?: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string; method?: PayMethod; courseId?: string }
+export interface NewPayment { memberId?: string; productName: string; amount: number; payerName?: string; payerPhone?: string; paidAt?: string; method?: PayMethod; courseId?: string; discountPct?: number }
 
 export interface Actions {
   load(): Promise<void>;
@@ -233,6 +242,18 @@ export interface Actions {
   /** 회원 상세용 전체 기록(서버: bootstrap 의 62일 창 밖까지) */
   memberHistory(memberId: string): Promise<MemberHistory>;
   cancelPayment(paymentId: string): Promise<{ ok: true } | { ok: false; used: number }>;
+  /** 원장만: 직접 넣은 결제(현금·이체) 고치기. 상품·받은 날이 바뀌면 수강권을 다시 만든다(출석했으면 PASS_IN_USE) */
+  editPayment(paymentId: string, patch: PaymentPatch): Promise<{ ok: true } | { ok: false; error: string; used: number }>;
+  /** 원장만: 그 달(KST) 승인 결제 합계 */
+  paymentsTotal(month: string): Promise<number>;
+  /** 원장만: 그 달 대강 목록 */
+  substitutions(month: string): Promise<Substitution[]>;
+  addSubstitution(s: Omit<Substitution, 'id'>): Promise<{ ok: true } | { ok: false; error: string }>;
+  removeSubstitution(id: string): Promise<void>;
+  /** 원장만: 수업 지우기(목록·시간표에서 사라진다. 지난 출석·정산 기록은 남는다). 이 수업에 묶인 상품이 있으면 PRODUCTS */
+  deleteCourse(id: string): Promise<{ ok: true } | { ok: false; error: string; used: number }>;
+  /** 원장만: 강사 할인율(%) 저장 */
+  saveInstructorDiscount(pct: number): Promise<void>;
   upsertInstructor(i: Instructor): Promise<void>;
   upsertCourse(c: Course): Promise<void>;
   upsertProduct(p: Product): Promise<void>;

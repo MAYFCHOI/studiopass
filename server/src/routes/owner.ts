@@ -14,7 +14,7 @@ const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, rol
 export function ownerRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db;
   // Guard by path, not '*': a '*' middleware in a sub-app mounted at /api would also catch every other /api route.
-  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*', '/audit']) r.use(path, ownerOnly);
+  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*', '/audit', '/substitutions', '/substitutions/*', '/settings/*']) r.use(path, ownerOnly);
 
   r.get('/settlement', (c) => {
     const month = c.req.query('month') ?? '';
@@ -29,6 +29,68 @@ export function ownerRoutes(d: Deps) {
     // The detail (every member name and payment of the month) is only fetched for the Excel export.
     audit(db, c.get('me').staffId, 'settlement.export', 'settlement', month, undefined, clientIp(c));
     return c.json(settlementDetail(db, month));
+  });
+
+  // 그 달(KST) 승인 결제 합계(결제 화면에 있던 '이달 결제'를 정산 화면에서 달마다 본다)
+  r.get('/settlement/payments-total', (c) => {
+    const month = c.req.query('month') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    const [y, m] = month.split('-').map(Number);
+    const from = new Date(Date.UTC(y, m - 1, 1) - 9 * 3600000).toISOString(), to = new Date(Date.UTC(y, m, 1) - 9 * 3600000).toISOString();
+    const r = db.prepare("select coalesce(sum(amount),0) total, count(*) n from payments where status='APPROVED' and paid_at >= ? and paid_at < ?").get(from, to) as { total: number; n: number };
+    return c.json({ total: r.total, count: r.n });
+  });
+
+  // 대강: 그 날 그 수업을 다른 강사가 맡음. 정산에서 그 날 출석·원데이와 1타임이 대강 강사 몫이 된다
+  r.get('/substitutions', (c) => {
+    const month = c.req.query('month') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    return c.json((db.prepare('select id, course_id, date, instructor_id, fee from substitutions where date like ? order by date').all(month + '-%') as any[]).map((x) => ({ id: x.id, courseId: x.course_id, date: x.date, instructorId: x.instructor_id, ...(x.fee != null ? { fee: x.fee } : {}) })));
+  });
+  r.post('/substitutions', async (c) => {
+    const b = await body(c);
+    if (!b || !str(b.courseId) || !str(b.instructorId) || (b.fee != null && !int(b.fee)) || typeof b.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.date) || Number.isNaN(Date.parse(b.date))) return bad(c);
+    const course = db.prepare('select weekday, instructor_id from courses where id=?').get(b.courseId) as { weekday: number; instructor_id: string } | undefined;
+    if (!course || !db.prepare('select 1 from instructors where id=?').get(b.instructorId)) return bad(c);
+    if (new Date(b.date + 'T00:00:00Z').getUTCDay() !== course.weekday) return c.json({ error: 'WRONG_DAY' }, 409);
+    if (course.instructor_id === b.instructorId) return c.json({ error: 'SAME_INSTRUCTOR' }, 409);
+    const id = newId();
+    db.transaction(() => {
+      db.prepare('delete from substitutions where course_id=? and date=?').run(b.courseId, b.date);
+      db.prepare('insert into substitutions(id,course_id,date,instructor_id,fee,created_by,created_at) values(?,?,?,?,?,?,?)').run(id, b.courseId, b.date, b.instructorId, b.fee ?? null, c.get('me').staffId, new Date().toISOString());
+      audit(db, c.get('me').staffId, 'substitution.create', 'substitution', id, { courseId: b.courseId, date: b.date, instructorId: b.instructorId, fee: b.fee ?? null });
+    })();
+    return c.json({ id, courseId: b.courseId, date: b.date, instructorId: b.instructorId, ...(b.fee != null ? { fee: b.fee } : {}) });
+  });
+  r.delete('/substitutions/:id', (c) => {
+    const id = c.req.param('id');
+    if (!db.prepare('delete from substitutions where id=?').run(id).changes) return notFound(c);
+    audit(db, c.get('me').staffId, 'substitution.delete', 'substitution', id);
+    return c.json({ ok: true });
+  });
+
+  // 강사 특전 할인율(%). 현금·이체 결제 넣기에서 '강사 할인' 을 누르면 이 비율만큼 깎는다
+  r.put('/settings/instructor-discount', async (c) => {
+    const b = await body(c);
+    if (!b || !int(b.pct, 1) || b.pct > 100) return bad(c);
+    db.prepare("insert into settings(key,value) values('instructor_discount_pct',?) on conflict(key) do update set value=excluded.value").run(String(b.pct));
+    audit(db, c.get('me').staffId, 'settings.instructor_discount', 'settings', null, { pct: b.pct });
+    return c.json({ pct: b.pct });
+  });
+
+  // 수업 지우기: 목록·시간표·고르기에서 사라진다. 지난 출석·원데이·정산 기록은 남는다(그래서 실제로 지우지 않고 표시만).
+  // 이 수업에 묶인 사용 중 상품이 있으면 409 PRODUCTS(상품을 먼저 다른 수업으로 바꾸거나 쉬게 한다)
+  r.delete('/courses/:id', (c) => {
+    const id = c.req.param('id');
+    const cur = db.prepare('select deleted_at from courses where id=?').get(id) as { deleted_at: string | null } | undefined;
+    if (!cur) return notFound(c);
+    const products = (db.prepare('select count(*) n from products where course_id=? and active=1').get(id) as { n: number }).n;
+    if (products > 0) return c.json({ error: 'PRODUCTS', count: products }, 409);
+    db.transaction(() => {
+      db.prepare('update courses set active=0, deleted_at=coalesce(deleted_at, ?) where id=?').run(new Date().toISOString(), id);
+      audit(db, c.get('me').staffId, 'course.delete', 'course', id);
+    })();
+    return c.json({ ok: true });
   });
 
   r.put('/instructors/:id', async (c) => {
@@ -88,16 +150,16 @@ export function ownerRoutes(d: Deps) {
   r.put('/tiers', async (c) => {
     const raw = await c.req.json().catch(() => null);
     const list = Array.isArray(raw) ? raw : raw?.tiers;
-    if (!Array.isArray(list) || !list.length || !list.every((t: any) => t && str(t.name) && int(t.minCount))) return bad(c);
+    if (!Array.isArray(list) || !list.length || !list.every((t: any) => t && str(t.name) && int(t.minCount) && (t.minYears == null || (int(t.minYears) && t.minYears <= 50)))) return bad(c);
     const sorted = [...list].sort((a: any, b: any) => a.minCount - b.minCount);
     if (sorted[0].minCount !== 0 || new Set(sorted.map((t: any) => t.minCount)).size !== sorted.length) return bad(c);
     db.transaction(() => {
       db.prepare('delete from tiers').run();
-      const ins = db.prepare('insert into tiers(id,name,min_count,sort) values(?,?,?,?)');
-      sorted.forEach((t: any, i: number) => ins.run(newId(), t.name.trim(), t.minCount, i));
+      const ins = db.prepare('insert into tiers(id,name,min_count,sort,min_years) values(?,?,?,?,?)');
+      sorted.forEach((t: any, i: number) => ins.run(newId(), t.name.trim(), t.minCount, i, t.minYears || null));
       audit(db, c.get('me').staffId, 'tiers.replace', 'tiers', null, sorted);
     })();
-    return c.json(sorted.map((t: any) => ({ name: t.name.trim(), minCount: t.minCount })));
+    return c.json(sorted.map((t: any) => ({ name: t.name.trim(), minCount: t.minCount, ...(t.minYears ? { minYears: t.minYears } : {}) })));
   });
 
   // 접속기록 조회. from/to = KST 날짜(YYYY-MM-DD, 포함), 최신순. 다음 쪽은 응답의 next 를 before 로 넘긴다.

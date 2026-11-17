@@ -1,0 +1,122 @@
+// 2026-11-17 선생님 요청: 결제 고치기, 대강, 등급 기간 조건, 수업 지우기, 이달 결제 합계
+import { it, expect, beforeEach } from 'vitest';
+import { openDb } from '../src/db.js';
+import { seedIfEmpty } from '../src/domain/seed.js';
+import { createStaff } from '../src/auth/sessions.js';
+import { createApp } from '../src/app.js';
+import { attend } from '../src/domain/attendance.js';
+const ORIGIN = 'https://studio.test';
+let db: any, app: any, o: string, d: string;
+const req = (path: string, init: any = {}, cookie?: string) => app.request('/api' + path, { ...init, headers: { 'content-type': 'application/json', origin: ORIGIN, ...(cookie ? { cookie } : {}) }, body: init.body ? JSON.stringify(init.body) : undefined });
+const login = async (id: string) => { const r = await req('/auth/login', { method: 'POST', body: { loginId: id, password: 'pw-12345678' } }); return (r.headers.get('set-cookie') ?? '').split(';')[0]; };
+const post = async (path: string, body?: unknown, c = o) => req(path, { method: 'POST', body }, c);
+beforeEach(async () => {
+  db = openDb(':memory:'); seedIfEmpty(db);
+  await createStaff(db, { loginId: 'owner', name: '원장', role: 'OWNER', password: 'pw-12345678' });
+  await createStaff(db, { loginId: 'desk', name: '인포', role: 'DESK', password: 'pw-12345678' });
+  app = createApp({ db, secureCookies: false, allowedOrigin: ORIGIN, now: () => new Date('2026-11-17T10:30:00Z') });
+  o = await login('owner'); d = await login('desk');
+});
+const member = async (name = '가', phone = '01012340000') => (await (await post('/members', { name, phone })).json()).id as string;
+
+it('edits a manual transfer: wrong product remakes the pass, amount only reprices it', async () => {
+  const m = await member();
+  const pay = await (await post('/payments', { amount: 30000, productName: '정규 클래스 1회권', memberId: m, method: 'TRANSFER', paidAt: '2026-11-10T03:00:00Z' })).json();
+  const before = db.prepare('select * from passes where payment_id=?').get(pay.id);
+  expect(before.total_count).toBe(1);
+  // 인포는 못 고친다
+  expect((await post(`/payments/${pay.id}/edit`, { amount: 1 }, d)).status).toBe(403);
+  const r = await (await post(`/payments/${pay.id}/edit`, { productName: '정규 클래스 8회권', amount: 180000, method: 'CASH' })).json();
+  expect(r).toMatchObject({ productName: '정규 클래스 8회권', amount: 180000, method: 'CASH', paidAt: '2026-11-10T03:00:00.000Z' });
+  const after = db.prepare('select * from passes where payment_id=?').all(pay.id);
+  expect(after).toHaveLength(1);
+  expect(after[0]).toMatchObject({ total_count: 8, price: 180000, valid_from: '2026-11-10' });
+  expect(db.prepare('select 1 from passes where id=?').get(before.id)).toBeUndefined();
+  // 출석하면 상품은 못 바꾸고 금액만 바꾼다
+  attend(db, { memberId: m, courseId: (db.prepare("select id from courses where kind='GENERAL' and weekday=2 limit 1").get() as any).id, staffId: null, now: new Date('2026-11-17T10:30:00Z') });
+  const blocked = await post(`/payments/${pay.id}/edit`, { productName: '정규 클래스 1회권' });
+  expect(blocked.status).toBe(409);
+  expect(await blocked.json()).toEqual({ error: 'PASS_IN_USE', used: 1 });
+  expect((await post(`/payments/${pay.id}/edit`, { amount: 160000 })).status).toBe(200);
+  expect(db.prepare('select price from passes where payment_id=?').get(pay.id).price).toBe(160000);
+  expect(db.prepare("select count(*) n from audit_log where action='payment.edit'").get().n).toBe(2);
+});
+
+it('edits a guest drop-in and refuses kiosk or cancelled payments', async () => {
+  const c = db.prepare("select id from courses where kind='GENERAL' limit 1").get() as { id: string };
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_w','WARM UP',null,'COUNT',1,7,30000,1)").run();
+  const pay = await (await post('/payments', { amount: 30000, productName: 'WARM UP', payerName: '손님', courseId: c.id, method: 'TRANSFER' })).json();
+  const r = await (await post(`/payments/${pay.id}/edit`, { payerName: '손님2', amount: 25000 })).json();
+  expect(r).toMatchObject({ payerName: '손님2', amount: 25000, courseId: c.id, dropIn: true });
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 'k1', paidAt: '2026-11-17T09:00:00Z', amount: 30000, productName: 'WARM UP' }] });
+  const k = db.prepare("select id from payments where external_id='k1'").get();
+  expect(await (await post(`/payments/${k.id}/edit`, { amount: 1 })).json()).toEqual({ error: 'KIOSK' });
+  await post(`/payments/${pay.id}/cancel`);
+  expect(await (await post(`/payments/${pay.id}/edit`, { amount: 1 })).json()).toEqual({ error: 'CANCELLED' });
+});
+
+it('substitution moves that day to the substitute, with a session even without attendance', async () => {
+  const c = db.prepare("select id, instructor_id, weekday from courses where kind='GENERAL' and weekday=3 limit 1").get() as { id: string; instructor_id: string; weekday: number };
+  const sub = (db.prepare('select id from instructors where id<>? limit 1').get(c.instructor_id) as { id: string }).id;
+  db.prepare("update courses set settlement_type='PER_SESSION', per_session_fee=40000 where id=?").run(c.id);
+  // 11/4·11/11 은 수요일. 11/4 는 출석 없이 대강, 11/11 은 원래 강사가 한 날
+  expect(await (await post('/substitutions', { courseId: c.id, date: '2026-11-05', instructorId: sub })).json()).toEqual({ error: 'WRONG_DAY' });
+  expect(await (await post('/substitutions', { courseId: c.id, date: '2026-11-04', instructorId: c.instructor_id })).json()).toEqual({ error: 'SAME_INSTRUCTOR' });
+  expect((await post('/substitutions', { courseId: c.id, date: '2026-11-04', instructorId: sub }, d)).status).toBe(403);
+  const s1 = await (await post('/substitutions', { courseId: c.id, date: '2026-11-04', instructorId: sub })).json();
+  await post('/substitutions', { courseId: c.id, date: '2026-11-11', instructorId: sub, fee: 30000 });
+  const m = await member(); db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,price,created_at) values('x1',?,'p_eight',null,'COUNT',8,8,'2026-11-01','2026-12-31',160000,'x')").run(m);
+  attend(db, { memberId: m, courseId: c.id, staffId: null, now: new Date('2026-11-11T10:30:00Z') });
+  const list = await (await req('/substitutions?month=2026-11', {}, o)).json();
+  expect(list).toHaveLength(2);
+  const lines = await (await req('/settlement?month=2026-11', {}, o)).json();
+  const subLine = lines.find((l: any) => l.instructorId === sub).courses.find((x: any) => x.courseId === c.id && x.sub);
+  // 11/4: 수업 기준 4만 원(타임제), 11/11: 대강 금액 3만 원이 따로 정해져 그 줄은 3만 원 × 2타임
+  expect(subLine).toMatchObject({ sub: true, type: 'PER_SESSION', perSessionFee: 30000, sessions: 2, heads: 1, instructorPay: 60000 });
+  const orig = lines.find((l: any) => l.instructorId === c.instructor_id).courses.find((x: any) => x.courseId === c.id);
+  expect(orig).toBeUndefined();
+  expect((await req(`/substitutions/${s1.id}`, { method: 'DELETE' }, o)).status).toBe(200);
+  const after = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === sub).courses.find((x: any) => x.courseId === c.id);
+  expect(after).toMatchObject({ sessions: 1, instructorPay: 30000 });
+});
+
+it('drop-in counted on a later class day carries the payment day', async () => {
+  const c = db.prepare("select id, instructor_id from courses where kind='GENERAL' and weekday=4 limit 1").get() as { id: string; instructor_id: string };
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_j','(1 TICKET) J',?,'COUNT',1,7,35000,1)").run(c.id);
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 'j1', paidAt: '2026-11-16T11:48:00Z', amount: 35000, productName: '(1 TICKET) J' }] });
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === c.instructor_id).courses.find((x: any) => x.courseId === c.id);
+  expect(line.days[0]).toMatchObject({ date: '2026-11-19', people: [{ kind: 'DROP_IN', paidOn: '2026-11-16' }] });
+});
+
+it('tier year condition, member since, payments total, course delete', async () => {
+  expect((await req('/tiers', { method: 'PUT', body: [{ name: '뎁스 1', minCount: 0 }, { name: '뎁스 4', minCount: 2, minYears: 2 }] }, o)).status).toBe(200);
+  const m = await member();
+  const c = db.prepare("select id from courses where kind='GENERAL' and weekday=2 limit 1").get() as { id: string };
+  db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,price,created_at) values('t1',?,'p_eight',null,'COUNT',8,8,'2026-01-01','2026-12-31',160000,'x')").run(m);
+  for (const day of ['2026-11-03', '2026-11-10']) db.prepare("insert into attendances(id,member_id,pass_id,course_id,instructor_id,attended_on,attended_at) values(?,?,'t1',?,(select instructor_id from courses where id=?),?,?)").run('a' + day, m, c.id, c.id, day, day + 'T10:00:00Z');
+  const tierOfM = async () => (await (await req('/bootstrap', {}, o)).json()).members.find((x: any) => x.id === m).tier.name;
+  expect(await tierOfM()).toBe('뎁스 1'); // 횟수는 채웠지만 다닌 지 2년이 안 됨
+  expect((await req(`/members/${m}`, { method: 'PATCH', body: { since: '2024-01-01' } }, d)).status).toBe(403);
+  expect((await req(`/members/${m}`, { method: 'PATCH', body: { since: '2024-01-01' } }, o)).status).toBe(200);
+  expect(await tierOfM()).toBe('뎁스 4');
+  expect((await (await req('/bootstrap', {}, o)).json()).tiers[1]).toEqual({ name: '뎁스 4', minCount: 2, minYears: 2 });
+
+  await post('/payments', { amount: 30000, productName: '정규 클래스 1회권', memberId: m, paidAt: '2026-11-02T03:00:00Z' });
+  await post('/payments', { amount: 15000, productName: '정규 클래스 1회권', memberId: m, paidAt: '2026-10-31T16:00:00Z', discountPct: 50 }); // KST 11/1
+  expect(await (await req('/settlement/payments-total?month=2026-11', {}, o)).json()).toEqual({ total: 45000, count: 2 });
+  expect((await req('/settlement/payments-total?month=2026-11', {}, d)).status).toBe(403);
+  expect(db.prepare('select discount_pct from payments where amount=15000').get().discount_pct).toBe(50);
+
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_y','Yeni Cho 1day',?,'COUNT',1,7,35000,1)").run(c.id);
+  expect(await (await req(`/courses/${c.id}`, { method: 'DELETE' }, o)).json()).toEqual({ error: 'PRODUCTS', count: 1 });
+  db.prepare("update products set course_id=null where id='p_y'").run();
+  expect((await req(`/courses/${c.id}`, { method: 'DELETE' }, d)).status).toBe(403);
+  expect((await req(`/courses/${c.id}`, { method: 'DELETE' }, o)).status).toBe(200);
+  const course = (await (await req('/bootstrap', {}, o)).json()).courses.find((x: any) => x.id === c.id);
+  expect(course).toMatchObject({ active: false, deleted: true });
+  // 지난 출석 정산은 그대로
+  expect((await (await req('/settlement?month=2026-11', {}, o)).json()).some((l: any) => l.courses.some((x: any) => x.courseId === c.id))).toBe(true);
+
+  expect((await req('/settings/instructor-discount', { method: 'PUT', body: { pct: 40 } }, o)).status).toBe(200);
+  expect((await (await req('/bootstrap', {}, o)).json()).instructorDiscountPct).toBe(40);
+});

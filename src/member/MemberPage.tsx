@@ -7,7 +7,7 @@ interface MemberData {
   name: string
   since: string
   attendCount: number
-  tier: { name: string; level: number; count: number; nextName: string | null; nextAt: number | null }
+  tier: { name: string; level: number; count: number; nextName: string | null; nextAt: number | null; nextYears?: number | null }
   tiers: { name: string; minCount: number }[]
   passes: { name: string; remaining: number; total: number; validTo: string; kind: string }[]
   qr: string
@@ -155,7 +155,7 @@ export function MemberPage() {
       <Qr value={d.qr} />
       <div className="hint">데스크에서 이 QR 을 보여주세요</div>
       {t.nextName && t.nextAt != null && (
-        <div className="next num">{`${t.nextName} 까지 ${Math.max(0, t.nextAt - t.count)}회`}</div>
+        <div className="next num">{`${t.nextName} 까지 ${Math.max(0, t.nextAt - t.count)}회${t.nextYears ? ` · 다닌 지 ${t.nextYears}년부터` : ''}`}</div>
       )}
       <div className="passes">
         {d.passes.length === 0 ? (

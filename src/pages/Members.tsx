@@ -114,7 +114,7 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
       setQrUrl(url);
     };
     const minDay = dayjs().subtract(62, 'day').format('YYYY-MM-DD');
-    const bfCourses = bf ? s.courses.filter((c) => c.weekday.includes(dayjs(bf.date).day())).sort((a, b) => a.startTime.localeCompare(b.startTime)) : [];
+    const bfCourses = bf ? s.courses.filter((c) => !c.deleted && c.weekday.includes(dayjs(bf.date).day())).sort((a, b) => a.startTime.localeCompare(b.startTime)) : [];
     const bfPasses = passes.filter((p) => p.remaining > 0 || (p.adjustedUsed ?? 0) > 0);
     const openBf = () => { const date = t; const c = s.courses.filter((x) => x.active !== false && x.weekday.includes(dayjs(date).day()))[0]; setBf({ date, courseId: c?.id ?? '', passId: bfPasses[0]?.id ?? '' }); };
     const saveBf = async () => {
@@ -171,6 +171,13 @@ export default function Members({ go, memberId }: { go: (t: Tab, arg?: string) =
                 {(s.tiers ?? []).map((t, i) => i > 0 && <option key={t.name} value={i + 1}>{t.name} 이상</option>)}
               </select>
             )}
+          </div>
+        )}
+        {!m.erased && owner && (s.tiers ?? []).some((t) => t.minYears) && (
+          <div className="tier-row">
+            <div className="main"><div className="t">처음 온 날</div><div className="d">등급 기간 조건(몇 년 이상)을 이 날부터 세요. 앱 쓰기 전부터 다닌 회원은 실제 처음 온 날로 바꿔 주세요.</div></div>
+            <input className="input" type="date" aria-label="처음 온 날" style={{ maxWidth: 170 }} max={dayjs().format('YYYY-MM-DD')} value={m.since ?? dayjs(m.createdAt).format('YYYY-MM-DD')}
+              onChange={(e) => { const v = e.target.value; if (v) void s.updateMember(m.id, { since: v }).then(() => toast('처음 온 날을 바꿨어요'), () => {}); }} />
           </div>
         )}
 
