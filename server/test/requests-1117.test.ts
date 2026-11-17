@@ -120,3 +120,23 @@ it('tier year condition, member since, payments total, course delete', async () 
   expect((await req('/settings/instructor-discount', { method: 'PUT', body: { pct: 40 } }, o)).status).toBe(200);
   expect((await (await req('/bootstrap', {}, o)).json()).instructorDiscountPct).toBe(40);
 });
+
+it('extra pay (warm-up) adds to the instructor without a course, owner only', async () => {
+  const ins = (db.prepare('select id from instructors limit 1').get() as { id: string }).id;
+  expect((await post('/extra-pays', { date: '2026-11-04', instructorId: ins, fee: 40000, memo: '웜업' }, d)).status).toBe(403);
+  expect((await post('/extra-pays', { date: '2026-11-04', instructorId: ins, fee: 0 })).status).toBe(400);
+  expect((await post('/extra-pays', { date: '2026-11-04', instructorId: 'nope', fee: 40000 })).status).toBe(400);
+  await post('/extra-pays', { date: '2026-11-04', instructorId: ins, fee: 40000, memo: '웜업' });
+  const second = await (await post('/extra-pays', { date: '2026-11-11', instructorId: ins, fee: 40000, memo: '웜업' })).json();
+  await post('/extra-pays', { date: '2026-12-01', instructorId: ins, fee: 40000, memo: '웜업' });
+  const list = await (await req('/extra-pays?month=2026-11', {}, o)).json();
+  expect(list).toHaveLength(2);
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === ins);
+  const warm = line.courses.find((c: any) => c.extra);
+  expect(warm).toMatchObject({ name: '웜업', sessions: 2, instructorPay: 80000, revenue: 0, perSessionFee: 40000 });
+  expect(line.instructorPay).toBeGreaterThanOrEqual(80000);
+  expect(line.academyPay).toBe(line.revenue - line.courses.filter((c: any) => c.type === 'RATIO').reduce((n: number, c: any) => n + c.instructorPay - c.bonus, 0));
+  expect((await req(`/extra-pays/${second.id}`, { method: 'DELETE' }, o)).status).toBe(200);
+  const after = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === ins);
+  expect(after.courses.find((c: any) => c.extra)).toMatchObject({ sessions: 1, instructorPay: 40000 });
+});

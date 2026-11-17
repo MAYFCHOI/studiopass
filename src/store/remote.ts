@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import type { State, Store, Me, Member, Instructor, Pass, Attendance, SettlementLine, SettlementDetail, ScanFail, ImportResult, AssignResult, MemberHistory, Substitution } from '../types';
+import type { State, Store, Me, Member, Instructor, Pass, Attendance, SettlementLine, SettlementDetail, ScanFail, ImportResult, AssignResult, MemberHistory, Substitution, ExtraPay } from '../types';
 import { api, ApiError, isOffline } from '../api/client';
 import { activePassesOf } from '../lib/passes';
 import { newRequestKey } from '../lib/useBusy';
@@ -181,6 +181,9 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
         return r.ok ? { ok: true } : { ok: false, error: r.error };
       },
       removeSubstitution: (id) => mutate(`/substitutions/${id}`, { method: 'DELETE' }).then(() => {}),
+      extraPays: (month) => call<ExtraPay[]>(`/extra-pays?month=${encodeURIComponent(month)}`),
+      addExtraPay: (x) => mutate('/extra-pays', { method: 'POST', body: x }).then(() => {}),
+      removeExtraPay: (id) => mutate(`/extra-pays/${id}`, { method: 'DELETE' }).then(() => {}),
       deleteCourse: async (id) => {
         const r = await mutate409(`/courses/${id}`, { method: 'DELETE' });
         return r.ok ? { ok: true } : { ok: false, error: r.error, used: r.used };

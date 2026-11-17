@@ -3,9 +3,9 @@ import { kstDate } from '../util.js';
 import { findProduct, comboParts, comboAmounts } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
 export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN'; bonus?: number; paidOn?: string };
-export type DayLine = { date: string; heads: number; revenue: number; people: Person[] };
+export type DayLine = { date: string; heads: number; revenue: number; people: Person[]; fee?: number };
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
-export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sub?: boolean; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; proTickets: number; dropIns: number; days: DayLine[] };
+export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sub?: boolean; extra?: boolean; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; proTickets: number; dropIns: number; days: DayLine[] };
 export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
 type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number; payer_name: string | null };
 /**
@@ -55,6 +55,7 @@ export function settle(db: Db, month: string): SettlementLine[] {
   // 대강: 그 날 그 수업의 출석·원데이는 대강 강사 몫, 출석이 없어도 1타임. 대강한 날은 수업과 따로 한 줄(fee 가 있으면 그 날 1타임 금액)
   const subs = new Map((db.prepare('select course_id, date, instructor_id, fee from substitutions where date like ?').all(month + '-%') as any[]).map((x) => [`${x.course_id}|${x.date}`, x as { course_id: string; date: string; instructor_id: string; fee: number | null }]));
   const subOf = (courseId: string, date: string) => subs.get(`${courseId}|${date}`);
+  const extras = db.prepare('select date, instructor_id, fee, memo from extra_pays where date like ?').all(month + '-%') as { date: string; instructor_id: string; fee: number; memo: string | null }[];
   return ins.map((i) => {
     const base: Terms = { type: i.settlement_type, ratioInstructor: i.ratio_instructor, perSessionFee: i.per_session_fee };
     const byCourse = new Map<string, Map<string, Person[]>>();
@@ -86,6 +87,14 @@ export function settle(db: Db, month: string): SettlementLine[] {
       return { courseId, name: c?.name ?? '', weekday: c?.weekday ?? 0, startTime: c?.start_time ?? '', custom: fee != null || !!c?.settlement_type, ...(isSub ? { sub: true } : {}), ...terms, sessions, heads: all.length, revenue, instructorPay, bonus,
         proTickets: all.filter((p) => p.kind === 'PERIOD').length, dropIns: all.filter((p) => p.kind === 'DROP_IN').length, days: dayLines };
     }).sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime) || Number(!!a.sub) - Number(!!b.sub));
+    // 추가 페이(웜업 등): 메모별 한 줄, 날짜마다 1타임, 금액은 적은 그대로 더한다(매출 0, 학원 몫에서 빼지 않는다)
+    const byMemo = new Map<string, { date: string; fee: number }[]>();
+    for (const x of extras) if (x.instructor_id === i.id) { const k = x.memo || '추가 페이'; byMemo.set(k, [...(byMemo.get(k) ?? []), { date: x.date, fee: x.fee }]); }
+    for (const [memo, xs] of byMemo) {
+      const fees = new Set(xs.map((x) => x.fee)); const pay = xs.reduce((n, x) => n + x.fee, 0);
+      const days = [...xs].sort((a, b) => a.date.localeCompare(b.date)).map((x) => ({ date: x.date, heads: 0, revenue: 0, people: [] as Person[], fee: x.fee }));
+      lines.push({ courseId: `extra:${memo}`, name: memo, weekday: 7, startTime: '', custom: true, extra: true, type: 'PER_SESSION', ratioInstructor: 0, perSessionFee: fees.size === 1 ? xs[0].fee : 0, sessions: xs.length, heads: 0, revenue: 0, instructorPay: pay, bonus: 0, proTickets: 0, dropIns: 0, days });
+    }
     const sum = (k: 'sessions' | 'heads' | 'revenue' | 'instructorPay' | 'bonus' | 'proTickets' | 'dropIns') => lines.reduce((n, l) => n + l[k], 0);
     const ratioPay = lines.filter((l) => l.type === 'RATIO').reduce((n, l) => n + l.instructorPay - l.bonus, 0);
     return { instructorId: i.id, name: i.name, ...base, sessions: sum('sessions'), heads: sum('heads'), revenue: sum('revenue'), instructorPay: sum('instructorPay'), bonus: sum('bonus'), academyPay: sum('revenue') - ratioPay, proTickets: sum('proTickets'), dropIns: sum('dropIns'), courses: lines };

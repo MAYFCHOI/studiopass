@@ -14,7 +14,7 @@ const staffOut = (r: any) => ({ id: r.id, loginId: r.login_id, name: r.name, rol
 export function ownerRoutes(d: Deps) {
   const r = new Hono<AppEnv>(); const db = d.db;
   // Guard by path, not '*': a '*' middleware in a sub-app mounted at /api would also catch every other /api route.
-  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*', '/audit', '/substitutions', '/substitutions/*', '/settings/*']) r.use(path, ownerOnly);
+  for (const path of ['/settlement', '/settlement/*', '/instructors/*', '/courses/*', '/products/*', '/tiers', '/staff', '/staff/*', '/audit', '/substitutions', '/substitutions/*', '/extra-pays', '/extra-pays/*', '/settings/*']) r.use(path, ownerOnly);
 
   r.get('/settlement', (c) => {
     const month = c.req.query('month') ?? '';
@@ -66,6 +66,30 @@ export function ownerRoutes(d: Deps) {
     const id = c.req.param('id');
     if (!db.prepare('delete from substitutions where id=?').run(id).changes) return notFound(c);
     audit(db, c.get('me').staffId, 'substitution.delete', 'substitution', id);
+    return c.json({ ok: true });
+  });
+
+  // 추가 페이: 시간표 수업이 아닌 일(웜업 등). 정산에서 그 강사에게 날짜별 금액을 더한다
+  r.get('/extra-pays', (c) => {
+    const month = c.req.query('month') ?? '';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: 'BAD_MONTH' }, 400);
+    return c.json((db.prepare('select id, date, instructor_id, fee, memo from extra_pays where date like ? order by date, created_at').all(month + '-%') as any[]).map((x) => ({ id: x.id, date: x.date, instructorId: x.instructor_id, fee: x.fee, memo: x.memo ?? '' })));
+  });
+  r.post('/extra-pays', async (c) => {
+    const b = await body(c);
+    if (!b || !str(b.instructorId) || !int(b.fee) || b.fee <= 0 || (b.memo != null && (typeof b.memo !== 'string' || b.memo.length > 40)) || typeof b.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.date) || Number.isNaN(Date.parse(b.date))) return bad(c);
+    if (!db.prepare('select 1 from instructors where id=?').get(b.instructorId)) return bad(c);
+    const id = newId(); const memo = typeof b.memo === 'string' ? b.memo.trim() : '';
+    db.transaction(() => {
+      db.prepare('insert into extra_pays(id,date,instructor_id,fee,memo,created_by,created_at) values(?,?,?,?,?,?,?)').run(id, b.date, b.instructorId, b.fee, memo || null, c.get('me').staffId, new Date().toISOString());
+      audit(db, c.get('me').staffId, 'extra_pay.create', 'extra_pay', id, { date: b.date, instructorId: b.instructorId, fee: b.fee, memo });
+    })();
+    return c.json({ id, date: b.date, instructorId: b.instructorId, fee: b.fee, memo });
+  });
+  r.delete('/extra-pays/:id', (c) => {
+    const id = c.req.param('id');
+    if (!db.prepare('delete from extra_pays where id=?').run(id).changes) return notFound(c);
+    audit(db, c.get('me').staffId, 'extra_pay.delete', 'extra_pay', id);
     return c.json({ ok: true });
   });
 

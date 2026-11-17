@@ -160,9 +160,9 @@ export interface SettlementLine {
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
 export interface SettlementCourse {
   courseId: string; name: string; weekday: number; startTime: string;
-  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean; sub?: boolean;
+  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean; sub?: boolean; extra?: boolean;
   sessions: number; heads: number; revenue: number; instructorPay: number; bonus?: number; proTickets: number; dropIns: number;
-  days: { date: string; heads: number; revenue: number; sub?: boolean; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number; paidOn?: string }[] }[];
+  days: { date: string; heads: number; revenue: number; sub?: boolean; fee?: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number; paidOn?: string }[] }[];
 }
 
 export type ImportResult = {
@@ -186,6 +186,8 @@ export interface SettlementDetail {
 
 /** 대강: 그 날 그 수업을 다른 강사가 맡음. 그 날 출석·원데이 매출과 1타임이 대강 강사 몫이 된다 */
 export interface Substitution { id: string; courseId: string; date: string; instructorId: string; fee?: number }
+/** 추가 페이: 시간표 수업이 아닌 일(웜업 등). 정산에서 그 강사에게 금액을 더한다 */
+export interface ExtraPay { id: string; date: string; instructorId: string; fee: number; memo: string }
 export interface PaymentPatch { productName?: string; amount?: number; method?: PayMethod | null; paidAt?: string; courseId?: string | null; payerName?: string }
 
 /** 직접 입력. memberId 가 없으면 원데이 손님(이름만). */
@@ -250,6 +252,10 @@ export interface Actions {
   substitutions(month: string): Promise<Substitution[]>;
   addSubstitution(s: Omit<Substitution, 'id'>): Promise<{ ok: true } | { ok: false; error: string }>;
   removeSubstitution(id: string): Promise<void>;
+  /** 원장만: 그 달 추가 페이(웜업 등) */
+  extraPays(month: string): Promise<ExtraPay[]>;
+  addExtraPay(x: Omit<ExtraPay, 'id'>): Promise<void>;
+  removeExtraPay(id: string): Promise<void>;
   /** 원장만: 수업 지우기(목록·시간표에서 사라진다. 지난 출석·정산 기록은 남는다). 이 수업에 묶인 상품이 있으면 PRODUCTS */
   deleteCourse(id: string): Promise<{ ok: true } | { ok: false; error: string; used: number }>;
   /** 원장만: 강사 할인율(%) 저장 */
