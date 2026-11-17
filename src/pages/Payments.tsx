@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import { useStore } from '../store';
 import type { Tab } from '../App';
@@ -9,7 +9,7 @@ import { useBusy, newRequestKey } from '../lib/useBusy';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
-import type { Payment, ImportResult, AssignResult, PayMethod, Product, State } from '../types';
+import type { Payment, ImportResult, AssignResult, PayMethod, Product, State, Substitution } from '../types';
 import { needsCourse, guessCourse, coursesFor, productByName } from '../lib/dropin';
 import { courseTitle } from '../lib/labels';
 
@@ -51,6 +51,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const [dropCourse, setDropCourse] = useState(''); // 원데이 결제의 수업(웜업처럼 상품에 수업이 없을 때)
   const [manual, setManual] = useState(false);
   const [editing, setEditing] = useState<Payment | null>(null);
+  const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [q, setQ] = useState('');
   const file = useRef<HTMLInputElement>(null);
   const [busy, run] = useBusy();
@@ -99,6 +100,9 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const dropOpen = (p: Payment) => !!p.dropIn && p.status === 'APPROVED' && (p.memberId ? !p.passId : (!p.payerName || noCourse(p)));
   const queue = s.payments.filter((p) => !!p.review || (p.status === 'APPROVED' && (p.dropIn ? dropOpen(p) : (!p.memberId || !p.passId)))).sort((a, b) => b.paidAt.localeCompare(a.paidAt));
   const all = [...s.payments].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+  const months = [...new Set([dayjs().format('YYYY-MM'), ...all.map((p) => dayjs(p.paidAt).format('YYYY-MM'))])].sort().reverse();
+  const shown = all.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === month);
+  const taught = useTaughtBy(owner && assign && needsCourse(s, assign) ? dropCourse : '', assign?.paidAt ?? '');
   const name = (id?: string) => s.members.find((m) => m.id === id)?.name;
   const canEdit = (p: Payment) => owner && p.source === 'MANUAL' && p.status === 'APPROVED';
   const openAssign = (p: Payment) => { setAssign(p); setDropCourse(p.courseId ?? (needsCourse(s, p) ? guessCourse(s, p.productName, p.paidAt)?.id ?? '' : '')); };
@@ -107,6 +111,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   const saveDropName = (p: Payment) => run(async () => {
     const n = dropName.trim() || p.payerName || ''; if (!n) return;
     if (needsCourse(s, p) && dropCourse && dropCourse !== (p.courseId ?? '')) { if ((await s.setPaymentCourse(p.id, dropCourse).then(() => true, () => false)) === false) return; }
+    if (!(await taught.save())) return;
     if (n !== p.payerName) await s.setPayerName(p.id, n).catch(() => null);
     const c = s.courses.find((x) => x.id === dropCourse);
     toast(needsCourse(s, p) && c ? `${n} 님 원데이 · ${courseTitle(s, c)} 수업으로 적었어요` : `${n} 님 원데이로 적었어요`); closeAssign();
@@ -156,9 +161,10 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
           })}
         </div>
       ))}
-      {tab === 'all' && (
-        <div className="list">
-          {all.slice(0, 100).map((p) => (
+      {tab === 'all' && (<>
+        <div className="seg" style={{ marginTop: 8, flexWrap: 'wrap' }}>{months.map((m) => <button key={m} aria-pressed={month === m} onClick={() => setMonth(m)}>{dayjs(m + '-01').format('M월')} · {all.filter((p) => dayjs(p.paidAt).format('YYYY-MM') === m).length}</button>)}</div>
+        {shown.length === 0 ? <div className="empty"><b>{dayjs(month + '-01').format('M월')} 결제가 없어요</b></div> : <div className="list">
+          {shown.map((p) => (
             <div className="row" key={p.id} style={p.status === 'CANCELLED' ? { opacity: .45 } : undefined}>
               <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : METHOD_TEXT[p.method ?? ''] ?? '직접 입력'}{p.discountPct ? ` · 할인 ${p.discountPct}%` : ''}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}{p.review && ` · ${REVIEW_TEXT[p.review]}`}</div></div>
               <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}
@@ -169,8 +175,8 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
               </div>
             </div>
           ))}
-        </div>
-      )}
+        </div>}
+      </>)}
 
       {sheet && (
         <Sheet onClose={() => setSheet(null)} title={`${sheet.rows.length}건 불러오기`}>
@@ -221,6 +227,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
                   </div>
                 );
               })()}
+              <TaughtBySelect t={taught} />
               <div className="btn-row" style={{ marginTop: 8 }}>
                 <input className="input" placeholder={assign.payerName || '손님 이름'} value={dropName} onChange={(e) => setDropName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void saveDropName(assign); }} />
                 <button className="btn primary" disabled={busy || !(dropName.trim() || assign.payerName) || (needsCourse(s, assign) && !dropCourse)} onClick={() => { void saveDropName(assign); }}>{busy ? '저장 중…' : needsCourse(s, assign) ? '저장' : '이름만 적기'}</button>
@@ -431,6 +438,57 @@ function sellable(s: Pick<State, 'products' | 'courses'>, keep?: string) {
 }
 
 /** 직접 넣은 결제(현금·이체) 고치기. 원장만. 상품·받은 날을 바꾸면 수강권을 새로 만든다(출석했으면 못 바꾼다) */
+/** 원데이 결제가 센 수업 날: 받은 날부터 그 수업 요일이 처음 오는 날(서버 정산 classDay 와 같다, 달은 넘기지 않는다). */
+function dropDay(paidAt: string, weekday?: number) {
+  const d = dayjs(paidAt).startOf('day');
+  if (weekday === undefined) return d.format('YYYY-MM-DD');
+  const t = d.add((weekday - d.day() + 7) % 7, 'day');
+  return (t.month() === d.month() ? t : d).format('YYYY-MM-DD');
+}
+
+/** 원데이에 고른 수업을 그 날 다른 강사가 했을 때(웜업을 다른 쌤이 한 날 등): 그 날 그 수업을 대강으로 적어 정산이 그 강사에게 가게 한다. 원장만. */
+function useTaughtBy(courseId: string, paidAt: string) {
+  const s = useStore();
+  const course = s.courses.find((c) => c.id === courseId);
+  const date = course && paidAt ? dropDay(paidAt, course.weekday[0]) : '';
+  const [sub, setSub] = useState<Substitution | null | undefined>(undefined);
+  const [who, setWho] = useState('');
+  useEffect(() => {
+    setSub(undefined); setWho('');
+    if (!course || !date) return;
+    let live = true;
+    s.substitutions(date.slice(0, 7)).then((xs) => {
+      if (!live) return; const x = xs.find((y) => y.courseId === course.id && y.date === date) ?? null;
+      setSub(x); setWho(x?.instructorId ?? course.instructorId);
+    }, () => { if (live) { setSub(null); setWho(course.instructorId); } });
+    return () => { live = false; };
+  }, [course?.id, date]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => {
+    if (!course || sub === undefined || !who) return true;
+    if (who === (sub?.instructorId ?? course.instructorId)) return true;
+    if (who === course.instructorId) { if (sub) await s.removeSubstitution(sub.id); return true; }
+    const r = await s.addSubstitution({ courseId: course.id, date, instructorId: who });
+    if (!r.ok) toast('대강을 적지 못했어요. 정산 화면에서 다시 적어 주세요');
+    return r.ok;
+  };
+  return { course, date, who, setWho, ready: !!course && sub !== undefined, save };
+}
+
+function TaughtBySelect({ t }: { t: ReturnType<typeof useTaughtBy> }) {
+  const s = useStore();
+  if (!t.ready || !t.course) return null;
+  const c = t.course;
+  const orig = s.instructors.find((i) => i.id === c.instructorId)?.name ?? '원래 강사';
+  return (
+    <div className="field" style={{ marginTop: 10 }}><label style={{ color: 'inherit' }}>{dayjs(t.date).format('M/D')} 이 수업은 누가 했나요?</label>
+      <select className="input" value={t.who} onChange={(e) => t.setWho(e.target.value)}>
+        {[...s.instructors].sort((a, b) => Number(b.id === c.instructorId) - Number(a.id === c.instructorId) || a.name.localeCompare(b.name)).map((i) => <option key={i.id} value={i.id}>{i.name}{i.id === c.instructorId ? ' (원래 강사)' : ''}</option>)}
+      </select>
+      {t.who !== c.instructorId && <p className="sub" style={{ margin: '6px 0 0' }}>{orig} 쌤 대신 한 날로 대강에 적혀요. 이 날 이 수업 정산은 고른 강사에게 가요. 같은 날 추가 페이를 따로 넣었다면 정산에서 지워 주세요.</p>}
+    </div>
+  );
+}
+
 function EditPay({ p, onClose }: { p: Payment; onClose: () => void }) {
   const s = useStore();
   const cur = productByName(s.products, p.productName);
@@ -444,12 +502,14 @@ function EditPay({ p, onClose }: { p: Payment; onClose: () => void }) {
   const [guest, setGuest] = useState(p.payerName ?? '');
   const [courseId, setCourseId] = useState(p.courseId ?? '');
   const [busy, run] = useBusy();
+  const [del, setDel] = useState(false);
   const total = Number(amount.replace(/\D/g, '')) || 0;
   const productName = prod?.name ?? p.productName;
   const drop = prod ? !!prod.dropIn : !!p.dropIn;
   const at = day === dayjs(p.paidAt).format('YYYY-MM-DD') ? p.paidAt : dayjs(`${day}T12:00:00`).toISOString();
   const pickCourse = drop && !p.memberId && !!prod && !prod.courseId;
   const dayCourses = pickCourse ? coursesFor(s, productName, at) : [];
+  const taught = useTaughtBy(pickCourse ? courseId : '', at);
   const changedProduct = productName !== p.productName;
   const changedDay = at !== p.paidAt;
   const passUsed = p.passId ? s.attendances.filter((a) => !a.cancelledAt && s.passes.some((x) => x.id === a.passId && x.paymentId === p.id)).length : 0;
@@ -461,8 +521,15 @@ function EditPay({ p, onClose }: { p: Payment; onClose: () => void }) {
       ...(!p.memberId && drop && guest.trim() !== (p.payerName ?? '') ? { payerName: guest.trim() } : {}),
     }).catch(() => null);
     if (!r) return;
+    if (r.ok && !(await taught.save())) return;
     if (!r.ok) { toast(r.error === 'PASS_IN_USE' ? `이 수강권으로 출석 ${r.used}회가 있어 상품·받은 날은 못 바꿔요. 금액·받은 방법만 고칠 수 있어요` : r.error === 'KIOSK' ? '키오스크 결제는 고칠 수 없어요' : '이미 취소된 결제예요'); return; }
     toast(p.memberId && (changedProduct || changedDay) ? '고쳤어요. 수강권도 새로 만들었어요' : '고쳤어요'); onClose();
+  });
+  const remove = () => run(async () => {
+    const r = await s.cancelPayment(p.id).catch(() => null);
+    if (!r) return;
+    if (!r.ok) { toast(`이 수강권으로 출석 ${r.used}회가 있어 지울 수 없어요. 출석을 먼저 취소해 주세요`); return; }
+    toast('결제를 지웠어요'); onClose();
   });
   return (
     <Sheet onClose={onClose} title="결제 수정">
@@ -475,10 +542,20 @@ function EditPay({ p, onClose }: { p: Payment; onClose: () => void }) {
       </select></div>
       <div className="field"><label>금액</label><input className="input" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
       {pickCourse && <div className="field"><label>어느 수업이었나요? (이 수업 강사에게 정산돼요)</label><select className="input" value={courseId} onChange={(e) => setCourseId(e.target.value)}><option value="">고르기</option>{dayCourses.map((c) => <option key={c.id} value={c.id}>{c.startTime} {courseTitle(s, c)}{c.note ? ` · ${c.note}` : ''}</option>)}</select></div>}
+      {pickCourse && <TaughtBySelect t={taught} />}
       {drop && !p.memberId && <div className="field"><label>손님 이름</label><input className="input" value={guest} onChange={(e) => setGuest(e.target.value)} /></div>}
       <div className="field"><label>받은 날</label><input className="input" type="date" max={today} value={day} disabled={passUsed > 0} onChange={(e) => setDay(e.target.value || day)} /></div>
       {p.memberId && (changedProduct || changedDay) && <p className="sub">상품이나 받은 날을 바꾸면 이 결제의 수강권을 지우고 새 상품·날짜로 다시 만들어요.</p>}
       <button className="btn primary wide" disabled={busy || !ready} onClick={() => { void submit(); }}>{busy ? '저장 중…' : `${won(total)}로 저장`}</button>
+      {!del
+        ? <button className="btn ghost wide" style={{ marginTop: 10 }} onClick={() => setDel(true)}>이 결제 지우기</button>
+        : <div className="notice" role="alertdialog" aria-label="결제 지우기 확인" style={{ marginTop: 10 }}>
+            잘못 넣은 결제면 지워 주세요. 정산과 결제 합계에서 빠지고{p.passId ? ' 이 결제로 만든 수강권도 같이 없어져요' : ''}. 결제 목록에는 흐리게 '취소'로 남아요.
+            <div className="btn-row">
+              <button className="btn wide" onClick={() => setDel(false)}>그만두기</button>
+              <button className="btn primary wide" disabled={busy} onClick={() => { void remove(); }}>{busy ? '지우는 중…' : '지우기'}</button>
+            </div>
+          </div>}
     </Sheet>
   );
 }
