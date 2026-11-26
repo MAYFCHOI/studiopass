@@ -115,9 +115,10 @@ describe('drop-in (원데이) products', () => {
     const { setPayerName } = await import('../src/domain/payments.js');
     expect(setPayerName(db, p.id, ' 홍길동 ', 'st')).toBe(true);
     expect((db.prepare('select payer_name from payments').get() as any).payer_name).toBe('홍길동');
-    // 회원에게 연결하면 보통 결제처럼 수강권이 생기고, 이름 덮어쓰기는 막힌다
+    // 회원에게 연결해도 원데이는 수강권(회차)이 생기지 않고, 이름 덮어쓰기는 막힌다
     const m = db.prepare("insert into members(id,member_no,name,phone,created_at) values('mx','2026-9999','회원','01000000000','x')").run() && 'mx';
-    expect(assignPayment(db, p.id, m, 'st').passId).toBeTruthy();
+    expect(assignPayment(db, p.id, m, 'st').passId).toBeNull();
+    expect(db.prepare('select count(*) n from passes').get()).toEqual({ n: 0 });
     expect(setPayerName(db, p.id, '다른이름', 'st')).toBe(false);
   });
   it('ordinary products are not marked', () => {

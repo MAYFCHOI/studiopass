@@ -215,6 +215,27 @@ it('kiosk price differs from list price: warm-up part keeps 30,000, the class pa
   expect(db.prepare('select price from passes where payment_id=?').all(pay.id)).toEqual([{ price: reg.price + 40000 }]);
 });
 
+it('a 1 TICKET in a combo makes no member pass and settles as a drop-in of its class', async () => {
+  const cid = (db.prepare("select id from courses where note is null and weekday=4 limit 1").get() as { id: string }).id;
+  db.prepare("insert into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_tk','(1 TICKET) TESTER',?,'COUNT',1,7,35000,1)").run(cid);
+  const tk = { id: 'p_tk', name: '(1 TICKET) TESTER', price: 35000, course_id: cid };
+  const reg = db.prepare("select id, name, price from products where drop_in=0 and pass_kind='COUNT' and price>0 limit 1").get() as { id: string; name: string; price: number };
+  const ins = (db.prepare('select instructor_id from courses where id=?').get(tk.course_id) as { instructor_id: string }).instructor_id;
+  const m = await member();
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 't1', paidAt: '2026-11-26T09:57:07Z', amount: tk.price + reg.price, productName: `${tk.name} + ${reg.name}` }] });
+  const pay = db.prepare("select id from payments where external_id='t1'").get() as { id: string };
+  await post(`/payments/${pay.id}/assign`, { memberId: m });
+  expect(db.prepare('select product_id, price from passes where payment_id=?').all(pay.id)).toEqual([{ product_id: reg.id, price: reg.price }]);
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === ins);
+  const c = line.courses.find((x: any) => x.courseId === tk.course_id);
+  expect(c.days.flatMap((d: any) => d.people).filter((x: any) => x.kind === 'DROP_IN').map((x: any) => x.value)).toContain(tk.price);
+  // 예전에 만들어진 1티켓 쿠폰: 안 썼으면 지우고, 출석에 썼으면 남기고 원데이로 또 세지 않는다
+  const { repairPasslessPasses } = await import('../src/domain/payments.js');
+  db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('old_t',?,?,?,'COUNT',1,1,'2026-11-26','2026-12-02',?,1,'x')").run(m, tk.id, tk.course_id, pay.id);
+  expect(repairPasslessPasses(db)).toMatchObject({ removed: 1 });
+  expect(db.prepare("select count(*) n from passes where id='old_t'").get()).toEqual({ n: 0 });
+});
+
 it('head bonus adds per head from the N-th person on a per-session class', async () => {
   const warmId = (db.prepare("select id from courses where weekday=3 and note='WarmUp Training'").get() as { id: string }).id;
   const cur = await (await req('/bootstrap', {}, o)).json();

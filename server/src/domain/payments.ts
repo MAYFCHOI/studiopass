@@ -54,8 +54,8 @@ function ratioAmounts(amount: number, parts: (ProductRow | undefined)[]) {
   const rest = unknown ? Math.max(0, amount - known) / unknown : 0;
   return splitAmount(amount, parts.map((x) => (x ? x.price : rest)));
 }
-/** 수강권을 만들지 않는 상품: 수업이 정해지지 않은 원데이(웜업처럼 요일마다 강사가 다름). 회원에게 연결돼도 출석 쿠폰이 되지 않고 원데이로 정산된다. */
-export const passless = (p: Pick<ProductRow, 'drop_in' | 'course_id'>) => !!p.drop_in && !p.course_id;
+/** 수강권을 만들지 않는 상품: 원데이 전부(1 TICKET, 웜업). 회원에게 연결되거나 묶음으로 결제해도 출석 쿠폰이 되지 않고 원데이로 정산된다. */
+export const passless = (p: Pick<ProductRow, 'drop_in'>) => !!p.drop_in;
 /** 결제로 만들 수강권: 묶음이면 정가 비율로 나눈 몫 중 수강권을 만드는 상품만(웜업 몫은 원데이 정산으로 간다). 찾는 상품이 없으면 null. */
 function passPlan(db: Db, name: string, amount: number): { prod: ProductRow; price: number }[] | null {
   const many = splitProducts(db, name);
@@ -379,7 +379,7 @@ export function repairCombinedPayments(db: Db) {
 export function repairPasslessPasses(db: Db) {
   return db.transaction(() => {
     const rows = db.prepare(`select ps.id, ps.payment_id, ps.product_id from passes ps join products pr on pr.id=ps.product_id
-      where pr.drop_in=1 and pr.course_id is null and ps.payment_id is not null`).all() as { id: string; payment_id: string; product_id: string }[];
+      where pr.drop_in=1 and ps.payment_id is not null`).all() as { id: string; payment_id: string; product_id: string }[];
     let removed = 0, kept = 0;
     for (const r of rows) {
       if ((db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(r.id) as { n: number }).n > 0) { kept++; continue; }

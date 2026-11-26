@@ -10,10 +10,10 @@ export function productByName(products: Product[], name: string): Product | unde
   return live.find((p) => squash(p.name) === n) ?? live.filter((p) => squash(p.name) && n.includes(squash(p.name))).sort((a, b) => squash(b.name).length - squash(a.name).length)[0];
 }
 
-/** 수강권을 만들지 않는 결제(서버 passless 와 같다): 수업 없는 원데이 상품(웜업)만으로 된 결제. 회원에게 연결돼도 수강권이 없는 게 맞다. */
+/** 수강권을 만들지 않는 결제(서버 passless 와 같다): 원데이 상품(1 TICKET, 웜업)만으로 된 결제. 회원에게 연결돼도 수강권이 없는 게 맞다. */
 export const passlessPayment = (s: Pick<State, 'products'>, name: string) => {
   const parts = name.split('+').map((x) => x.trim()).filter(Boolean);
-  return (parts.length > 1 ? parts : [name]).every((x) => { const p = productByName(s.products, x); return !!p && !!p.dropIn && !p.courseId; });
+  return (parts.length > 1 ? parts : [name]).every((x) => { const p = productByName(s.products, x); return !!p && !!p.dropIn; });
 };
 
 /** 원데이 결제인데 상품에 수업이 없어(웜업처럼 요일마다 강사가 다름) 사람이 수업을 골라야 정산에 들어가는 결제.

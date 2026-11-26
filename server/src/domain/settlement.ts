@@ -17,10 +17,12 @@ function dropIns(db: Db, month: string): DropIn[] {
   const [y, m] = month.split('-').map(Number);
   const from = new Date(Date.UTC(y, m - 1, 1) - 9 * 3600000).toISOString();
   const to = new Date(Date.UTC(y, m, 1) - 9 * 3600000).toISOString();
-  const rows = db.prepare(`select p.product_name, p.course_id, p.paid_at, p.amount, coalesce(p.payer_name, mm.name) payer_name, p.drop_in, p.pass_id from payments p left join members mm on mm.id=p.member_id
+  const rows = db.prepare(`select p.id, p.product_name, p.course_id, p.paid_at, p.amount, coalesce(p.payer_name, mm.name) payer_name, p.drop_in, p.pass_id from payments p left join members mm on mm.id=p.member_id
     where p.status='APPROVED' and p.paid_at >= ? and p.paid_at < ? and ((p.drop_in=1 and p.pass_id is null) or p.product_name like '%+%')`).all(from, to) as any[];
   const insOf = db.prepare('select instructor_id from courses where id=?');
   const byName = db.prepare('select course_id from products where name=?'); // 쉬는 상품도(지난 달 정산)
+  // 예전에 원데이 조각으로 만들어져 출석에 쓰인 수강권은 출석으로 정산되니 원데이로 또 세지 않는다
+  const madePass = db.prepare('select 1 from passes where payment_id=? and product_id=?');
   const insFor = (id: string | null) => (id ? (insOf.get(id) as { instructor_id: string } | undefined)?.instructor_id ?? null : null);
   return rows.flatMap((r) => {
     const whole = !!r.drop_in && !r.pass_id; // 수강권이 없는 원데이 결제(전부 원데이로 센다)
@@ -30,7 +32,7 @@ function dropIns(db: Db, month: string): DropIn[] {
     if (parts) {
       const amounts = comboAmounts(r.amount, parts);
       return parts.flatMap((x, i) => {
-        if (!whole && !(x && passless(x))) return [];
+        if (!whole && !(x && passless(x) && !madePass.get(r.id, x.id))) return [];
         const courseId = x?.course_id ?? r.course_id ?? (x ? namedCourse(db, x.name, r.paid_at) : null);
         return [{ instructor_id: insFor(courseId), course_id: courseId, paid_at: r.paid_at, amount: amounts[i], payer_name: r.payer_name }];
       });
