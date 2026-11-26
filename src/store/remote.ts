@@ -216,7 +216,7 @@ export function createRemoteStore(): UseBoundStore<StoreApi<Store>> {
       memberHistory: (memberId) => call<MemberHistory>(`/members/${memberId}/history`, { timeoutMs: 15000 }),
       upsertInstructor: (i) => put(`/instructors/${i.id}`, i),
       // 서버 PUT 은 빠진 키를 예전 값으로 채우므로, 비운 선택 항목은 undefined(JSON 에서 빠짐) 대신 null 로 보낸다.
-      upsertCourse: (c) => put(`/courses/${c.id}`, { ...c, level: c.level ?? null, note: c.note ?? null, settlementType: c.settlementType ?? null, ratioInstructor: c.ratioInstructor ?? null, perSessionFee: c.perSessionFee ?? null }),
+      upsertCourse: (c) => put(`/courses/${c.id}`, { ...c, level: c.level ?? null, note: c.note ?? null, settlementType: c.settlementType ?? null, ratioInstructor: c.ratioInstructor ?? null, perSessionFee: c.perSessionFee ?? null, bonusFrom: c.settlementType === 'PER_SESSION' ? c.bonusFrom ?? null : null, bonusPerHead: c.settlementType === 'PER_SESSION' ? c.bonusPerHead ?? null : null }),
       upsertProduct: (p) => put(`/products/${p.id}`, { ...p, courseId: p.courseId ?? null, attendBonus: p.attendBonus ?? null }),
       settlement: async (month) => {
         const lines = await call<ServerLine[]>(`/settlement?month=${encodeURIComponent(month)}`, { timeoutMs: 20000 });

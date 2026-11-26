@@ -192,3 +192,27 @@ it('repairs old warm-up passes: unused ones go, prices of the rest follow the sp
   expect(db.prepare("select price from passes where id='old_r'").get()).toEqual({ price: reg.price });
   expect(repairPasslessPasses(db)).toEqual({ removed: 0, kept: 0 });
 });
+
+// 2026-11-26: 웜업 인원 인센티브(11명부터 1명당 15,000원)
+it('head bonus adds per head from the N-th person on a per-session class', async () => {
+  const warmId = (db.prepare("select id from courses where weekday=3 and note='WarmUp Training'").get() as { id: string }).id;
+  const cur = await (await req('/bootstrap', {}, o)).json();
+  const course = cur.courses.find((c: any) => c.id === warmId);
+  // 타임제가 아니면 못 넣는다, 둘 중 하나만도 안 된다
+  expect((await req(`/courses/${warmId}`, { method: 'PUT', body: { ...course, settlementType: 'RATIO', ratioInstructor: 50, bonusFrom: 11, bonusPerHead: 15000 } }, o)).status).toBe(200);
+  expect(db.prepare('select bonus_from from courses where id=?').get(warmId)).toEqual({ bonus_from: null });
+  expect((await req(`/courses/${warmId}`, { method: 'PUT', body: { ...course, settlementType: 'PER_SESSION', perSessionFee: 50000, bonusFrom: 11 } }, o)).status).toBe(400);
+  const saved = await (await req(`/courses/${warmId}`, { method: 'PUT', body: { ...course, settlementType: 'PER_SESSION', perSessionFee: 50000, bonusFrom: 11, bonusPerHead: 15000 } }, o)).json();
+  expect(saved).toMatchObject({ bonusFrom: 11, bonusPerHead: 15000 });
+  db.prepare("insert or ignore into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_warm','WARM UP TRAINING',null,'COUNT',1,6,30000,1)").run();
+  const ins = db.prepare("insert into payments(id,source,paid_at,amount,payer_phone,product_name,status,created_at,drop_in,payer_name) values(?,'MANUAL',?,30000,'','WARM UP TRAINING','APPROVED','x',1,?)");
+  for (let i = 0; i < 12; i++) ins.run(`h${i}`, '2026-11-25T09:00:00Z', `손님${i}`); // 수 12명
+  for (let i = 0; i < 10; i++) ins.run(`g${i}`, '2026-11-18T09:00:00Z', `손님${i}`); // 수 10명
+  const owner = (db.prepare('select instructor_id from courses where id=?').get(warmId) as { instructor_id: string }).instructor_id;
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === owner);
+  const w = line.courses.find((c: any) => c.courseId === warmId && !c.sub);
+  // 50,000×2 + (12-10)×15,000
+  expect(w).toMatchObject({ sessions: 2, headBonus: 30000, instructorPay: 130000, bonusFrom: 11, bonusPerHead: 15000 });
+  expect(w.days.find((d: any) => d.date === '2026-11-25').over).toBe(2);
+  expect(w.days.find((d: any) => d.date === '2026-11-18').over).toBeUndefined();
+});

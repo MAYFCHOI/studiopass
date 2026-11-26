@@ -30,7 +30,7 @@ export const toInstructor = (r: any, role: Role) => ({
 export const toCourse = (r: any, role: Role) => ({
   id: r.id, name: r.name, instructorId: r.instructor_id, kind: r.kind, hall: r.hall, level: opt(r.level), note: opt(r.note), weekday: [r.weekday], startTime: r.start_time, durationMin: r.duration_min, active: !!r.active, ...(r.deleted_at ? { deleted: true } : {}),
   // 수업별 정산 조건(없으면 강사 기본). DESK 에게는 주지 않는다
-  ...(owner(role) ? { settlementType: opt(r.settlement_type), ratioInstructor: opt(r.ratio_instructor), perSessionFee: opt(r.per_session_fee) } : {}),
+  ...(owner(role) ? { settlementType: opt(r.settlement_type), ratioInstructor: opt(r.ratio_instructor), perSessionFee: opt(r.per_session_fee), bonusFrom: opt(r.bonus_from), bonusPerHead: opt(r.bonus_per_head) } : {}),
 });
 export const toProduct = (r: any, role: Role) => ({
   id: r.id, name: r.name, courseId: opt(r.course_id), passKind: r.pass_kind, count: r.count, periodDays: r.period_days, active: !!r.active, dropIn: !!r.drop_in,

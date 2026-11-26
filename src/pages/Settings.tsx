@@ -197,6 +197,15 @@ export default function Settings() {
                 {!st && <p className="sub" style={{ margin: '6px 0 0' }}>강사 설정을 따라요{base && ` (지금 ${base})`}. 이 강사가 수업마다 방식이 다르면 여기서 이 수업만 바꿔 주세요.</p>}
                 {st === 'RATIO' && <div style={{ marginTop: 8 }}><label className="sub">강사 비율 (%) · 학원 {100 - (edit.v.ratioInstructor ?? 50)}%</label><input className="input" type="range" min={0} max={100} step={5} value={edit.v.ratioInstructor ?? 50} onChange={(e) => set({ ratioInstructor: Number(e.target.value) })} style={{ padding: 0, height: 32 }} /><div style={{ fontSize: 22, fontWeight: 800 }}>{100 - (edit.v.ratioInstructor ?? 50)} : {edit.v.ratioInstructor ?? 50}</div></div>}
                 {st === 'PER_SESSION' && <div style={{ marginTop: 8 }}><label className="sub">1타임 금액</label><input className="input" inputMode="numeric" value={edit.v.perSessionFee ?? 0} onChange={(e) => set({ perSessionFee: Number(e.target.value.replace(/\D/g, '')) })} /></div>}
+                {st === 'PER_SESSION' && <div style={{ marginTop: 10 }}>
+                  <label className="sub">인원 인센티브 (선택)</label>
+                  <div className="seg" style={{ marginTop: 4 }}><button aria-pressed={!edit.v.bonusFrom} onClick={() => set({ bonusFrom: undefined, bonusPerHead: undefined })}>없음</button><button aria-pressed={!!edit.v.bonusFrom} onClick={() => set({ bonusFrom: edit.v.bonusFrom ?? 11, bonusPerHead: edit.v.bonusPerHead ?? 15000 })}>있음</button></div>
+                  {!!edit.v.bonusFrom && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                    <input className="input" inputMode="numeric" style={{ width: 72 }} aria-label="몇 명부터" value={edit.v.bonusFrom} onChange={(e) => set({ bonusFrom: Math.max(2, Number(e.target.value.replace(/\D/g, '')) || 2) })} /><span>명부터 1명당</span>
+                    <input className="input" inputMode="numeric" style={{ width: 110 }} aria-label="1명당 금액" value={edit.v.bonusPerHead ?? 0} onChange={(e) => set({ bonusPerHead: Number(e.target.value.replace(/\D/g, '')) })} /><span>원 더하기</span>
+                  </div>}
+                  {!!edit.v.bonusFrom && <p className="sub" style={{ margin: '6px 0 0' }}>그 날 {edit.v.bonusFrom}명 이상이면 {edit.v.bonusFrom}번째 사람부터 1명당 {won(edit.v.bonusPerHead ?? 0)}을 1타임 금액에 더해요. 예: {edit.v.bonusFrom + 1}명이면 {won(edit.v.perSessionFee ?? 0)} + 2명 × {won(edit.v.bonusPerHead ?? 0)} = {won((edit.v.perSessionFee ?? 0) + 2 * (edit.v.bonusPerHead ?? 0))}</p>}
+                </div>}
               </div>
             );
           })()}

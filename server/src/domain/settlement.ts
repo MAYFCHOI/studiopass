@@ -3,9 +3,9 @@ import { kstDate } from '../util.js';
 import { findProduct, comboParts, comboAmounts, passless, namedCourse } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
 export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN'; bonus?: number; paidOn?: string };
-export type DayLine = { date: string; heads: number; revenue: number; people: Person[]; fee?: number };
+export type DayLine = { date: string; heads: number; revenue: number; people: Person[]; fee?: number; over?: number };
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
-export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sub?: boolean; extra?: boolean; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; proTickets: number; dropIns: number; days: DayLine[] };
+export type CourseLine = Terms & { courseId: string; name: string; weekday: number; startTime: string; custom: boolean; sub?: boolean; extra?: boolean; headBonus?: number; bonusFrom?: number; bonusPerHead?: number; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; proTickets: number; dropIns: number; days: DayLine[] };
 export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
 type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number; payer_name: string | null };
 /**
@@ -55,7 +55,7 @@ function classDay(paid: string, weekday?: number) {
 }
 export function settle(db: Db, month: string): SettlementLine[] {
   const ins = db.prepare('select id, name, settlement_type, ratio_instructor, per_session_fee from instructors').all() as any[];
-  const courses = new Map((db.prepare('select id, name, weekday, start_time, settlement_type, ratio_instructor, per_session_fee from courses').all() as any[]).map((c) => [c.id, c]));
+  const courses = new Map((db.prepare('select id, name, weekday, start_time, settlement_type, ratio_instructor, per_session_fee, bonus_from, bonus_per_head from courses').all() as any[]).map((c) => [c.id, c]));
   const att = db.prepare(`select a.instructor_id, a.course_id, a.attended_on, a.attended_at, p.kind, p.price, p.total_count, pr.attend_bonus bonus, m.name member from attendances a join passes p on p.id=a.pass_id left join products pr on pr.id=p.product_id left join members m on m.id=a.member_id
     where a.cancelled_at is null and a.attended_on like ? order by a.attended_at`).all(month + '-%') as any[];
   const drops = dropIns(db, month);
@@ -90,8 +90,12 @@ export function settle(db: Db, month: string): SettlementLine[] {
       const revenue = Math.round(all.reduce((n, p) => n + p.value, 0));
       const sessions = days.size;
       const bonus = all.reduce((n, p) => n + (p.bonus ?? 0), 0);
-      const instructorPay = (terms.type === 'RATIO' ? Math.round((revenue * terms.ratioInstructor) / 100) : sessions * terms.perSessionFee) + bonus;
-      return { courseId, name: c?.name ?? '', weekday: c?.weekday ?? 0, startTime: c?.start_time ?? '', custom: fee != null || !!c?.settlement_type, ...(isSub ? { sub: true } : {}), ...terms, sessions, heads: all.length, revenue, instructorPay, bonus,
+      // 인원 인센티브(타임제 수업): 그 날 bonus_from 번째 사람부터 1명당 bonus_per_head
+      const hb = terms.type === 'PER_SESSION' && c?.bonus_from && c?.bonus_per_head ? { from: c.bonus_from as number, per: c.bonus_per_head as number } : null;
+      if (hb) for (const d of dayLines) { const over = Math.max(0, d.heads - hb.from + 1); if (over) d.over = over; }
+      const headBonus = hb ? dayLines.reduce((n, d) => n + (d.over ?? 0), 0) * hb.per : 0;
+      const instructorPay = (terms.type === 'RATIO' ? Math.round((revenue * terms.ratioInstructor) / 100) : sessions * terms.perSessionFee) + bonus + headBonus;
+      return { courseId, name: c?.name ?? '', weekday: c?.weekday ?? 0, startTime: c?.start_time ?? '', custom: fee != null || !!c?.settlement_type, ...(isSub ? { sub: true } : {}), ...(hb ? { headBonus, bonusFrom: hb.from, bonusPerHead: hb.per } : {}), ...terms, sessions, heads: all.length, revenue, instructorPay, bonus,
         proTickets: all.filter((p) => p.kind === 'PERIOD').length, dropIns: all.filter((p) => p.kind === 'DROP_IN').length, days: dayLines };
     }).sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime) || Number(!!a.sub) - Number(!!b.sub));
     // 추가 페이(웜업 등): 메모별 한 줄, 날짜마다 1타임, 금액은 적은 그대로 더한다(매출 0, 학원 몫에서 빼지 않는다)

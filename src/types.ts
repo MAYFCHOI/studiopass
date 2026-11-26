@@ -49,6 +49,9 @@ export interface Course {
   settlementType?: SettlementType;
   ratioInstructor?: number;
   perSessionFee?: number;
+  /** 타임제 인원 인센티브: 그 날 bonusFrom 번째 사람부터 1명당 bonusPerHead 원 */
+  bonusFrom?: number;
+  bonusPerHead?: number;
 }
 
 export interface Product {
@@ -160,9 +163,9 @@ export interface SettlementLine {
 /** 강사 한 명의 수업 하나. custom: 수업에 따로 정한 조건(아니면 강사 기본) */
 export interface SettlementCourse {
   courseId: string; name: string; weekday: number; startTime: string;
-  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean; sub?: boolean; extra?: boolean;
+  type: SettlementType; ratioInstructor: number; perSessionFee: number; custom: boolean; sub?: boolean; extra?: boolean; headBonus?: number; bonusFrom?: number; bonusPerHead?: number;
   sessions: number; heads: number; revenue: number; instructorPay: number; bonus?: number; proTickets: number; dropIns: number;
-  days: { date: string; heads: number; revenue: number; sub?: boolean; fee?: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number; paidOn?: string }[] }[];
+  days: { date: string; heads: number; revenue: number; sub?: boolean; fee?: number; over?: number; people: { name: string; value: number; kind: PassKind | 'DROP_IN'; bonus?: number; paidOn?: string }[] }[];
 }
 
 export type ImportResult = {

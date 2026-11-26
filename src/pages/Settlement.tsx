@@ -149,6 +149,7 @@ export default function Settlement() {
           <li>전문반 월정액 출석은 금액으로 바꾸지 않고 강사별 횟수만 세요.</li>
           <li>수업에 정산 방식을 따로 정하면(설정 → 수업) 그 수업만 그 방식으로 계산하고 강사별로 더해요.</li>
           <li>대강한 날은 그 날 출석·원데이와 1타임이 대강 강사 몫이에요. 1타임 금액을 적으면 그 금액, 비우면 수업(없으면 대강 강사) 정산 방식을 따라요.</li>
+          <li>타임제 수업에 인원 인센티브를 정하면(설정 → 수업) 그 날 정한 인원부터 1명당 금액을 1타임에 더해요.</li>
           <li>추가 페이(웜업 등 시간표에 없는 일)는 적은 금액 그대로 그 강사 지급에 더해요. 매출과 학원 몫에는 들어가지 않아요.</li>
         </ul>
       </div>
@@ -165,9 +166,11 @@ const formula = (c: SettlementCourse) => {
   if (c.extra) return c.perSessionFee ? `${c.sessions}회 × ${won(c.perSessionFee)} = ${won(c.instructorPay)}` : `${c.days.map((d) => `${dayjs(d.date).format('M/D')} ${won(d.fee ?? 0)}`).join(' + ')} = ${won(c.instructorPay)}`;
   const b = c.bonus ?? 0; const base = c.instructorPay - b;
   const plus = b ? ` + 출석 추가 페이 ${won(b)} = ${won(c.instructorPay)}` : '';
+  const hb = c.headBonus ?? 0;
+  const head = c.bonusFrom ? ` + 인원 추가 ${hb / (c.bonusPerHead || 1)}명 × ${won(c.bonusPerHead ?? 0)}` : '';
   return c.type === 'RATIO'
     ? `매출 ${won(c.revenue)} × ${c.ratioInstructor}% = ${won(base)}${plus}`
-    : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(base)}${plus}`;
+    : head ? `${c.sessions}타임 × ${won(c.perSessionFee)}${head}${b ? ` + 출석 추가 페이 ${won(b)}` : ''} = ${won(c.instructorPay)}` : `${c.sessions}타임 × ${won(c.perSessionFee)} = ${won(base)}${plus}`;
 };
 
 /** 강사 한 명의 그 달 계산: 수업별 조건과 식, 날짜별 출석한 사람과 1회 금액. 합계가 정산 화면의 강사 지급과 같다 */
@@ -186,7 +189,7 @@ function InstructorDetail({ line, month, onClose }: { line: SettlementLine; mont
           <div className="sd-days">
             {c.days.map((d) => (
               <div className="sd-day" key={d.date}>
-                <div className="sd-date"><b>{dayjs(d.date).format('M/D')}</b><span>{c.extra ? won(d.fee ?? 0) : `${d.heads}명 · ${won(d.revenue)}`}</span></div>
+                <div className="sd-date"><b>{dayjs(d.date).format('M/D')}</b><span>{c.extra ? won(d.fee ?? 0) : `${d.heads}명 · ${won(d.revenue)}${d.over ? ` · 인원 추가 ${d.over}명` : ''}`}</span></div>
                 <div className="sd-people">{d.people.length === 0 && !c.extra && <span>출석 기록 없음</span>}{d.people.map((p, i) => <span key={i}>{p.name || '이름 없음'}{kind(p.kind) && <em>{kind(p.kind)}</em>}{p.paidOn && <em>{dayjs(p.paidOn).format('M/D')} 결제</em>} <span className="num">{won(p.value)}{p.bonus ? ` +${won(p.bonus)}` : ''}</span></span>)}</div>
               </div>
             ))}

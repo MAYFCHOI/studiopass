@@ -142,9 +142,12 @@ export function ownerRoutes(d: Deps) {
     if (st !== null && !['RATIO', 'PER_SESSION'].includes(st)) return bad(c);
     if (st === 'RATIO' && (!int(ratio) || ratio > 100)) return bad(c);
     if (st === 'PER_SESSION' && !int(fee)) return bad(c);
+    // 인원 인센티브: 둘 다 비우거나 둘 다(타임제만). N명부터 1명당 금액
+    const bf = st === 'PER_SESSION' ? v.bonusFrom ?? null : null, bp = st === 'PER_SESSION' ? v.bonusPerHead ?? null : null;
+    if ((bf === null) !== (bp === null) || (bf !== null && (!int(bf, 2) || bf > 999 || !int(bp) || bp > 10000000))) return bad(c);
     if (!db.prepare('select 1 from instructors where id=?').get(v.instructorId)) return bad(c);
-    db.prepare('insert into courses(id,hall,name,instructor_id,kind,level,note,weekday,start_time,duration_min,active,settlement_type,ratio_instructor,per_session_fee) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict(id) do update set hall=excluded.hall, name=excluded.name, instructor_id=excluded.instructor_id, kind=excluded.kind, level=excluded.level, note=excluded.note, weekday=excluded.weekday, start_time=excluded.start_time, duration_min=excluded.duration_min, active=excluded.active, settlement_type=excluded.settlement_type, ratio_instructor=excluded.ratio_instructor, per_session_fee=excluded.per_session_fee')
-      .run(id, v.hall, v.name.trim(), v.instructorId, v.kind, v.level ?? null, v.note ?? null, wd[0], v.startTime, v.durationMin, v.active === false ? 0 : 1, st, st === 'RATIO' ? ratio : null, st === 'PER_SESSION' ? fee : null);
+    db.prepare('insert into courses(id,hall,name,instructor_id,kind,level,note,weekday,start_time,duration_min,active,settlement_type,ratio_instructor,per_session_fee,bonus_from,bonus_per_head) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) on conflict(id) do update set hall=excluded.hall, name=excluded.name, instructor_id=excluded.instructor_id, kind=excluded.kind, level=excluded.level, note=excluded.note, weekday=excluded.weekday, start_time=excluded.start_time, duration_min=excluded.duration_min, active=excluded.active, settlement_type=excluded.settlement_type, ratio_instructor=excluded.ratio_instructor, per_session_fee=excluded.per_session_fee, bonus_from=excluded.bonus_from, bonus_per_head=excluded.bonus_per_head')
+      .run(id, v.hall, v.name.trim(), v.instructorId, v.kind, v.level ?? null, v.note ?? null, wd[0], v.startTime, v.durationMin, v.active === false ? 0 : 1, st, st === 'RATIO' ? ratio : null, st === 'PER_SESSION' ? fee : null, bf, bp);
     audit(db, c.get('me').staffId, cur ? 'course.update' : 'course.create', 'course', id, b);
     return c.json(toCourse(db.prepare('select * from courses where id=?').get(id), 'OWNER'));
   });
