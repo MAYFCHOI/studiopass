@@ -8,6 +8,13 @@ import { matchMember, samePhoneMembers } from '../lib/search';
 import { useBusy, newRequestKey } from '../lib/useBusy';
 import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
+
+/** 상품명: 잘리지 않게 줄을 바꿔 보여 준다. 키오스크 묶음 결제("A + B")는 상품마다 한 줄. */
+function ProdName({ name }: { name: string }) {
+  const parts = (name ?? '').split('+').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (parts.length < 2) return <div className="prod">{parts[0] ?? name}</div>;
+  return <div className="prod multi">{parts.map((x, i) => <span key={i}>{i ? '+ ' : ''}{x}</span>)}</div>;
+}
 import { toast } from '../components/Toast';
 import type { Payment, ImportResult, AssignResult, PayMethod, Product, State, Substitution } from '../types';
 import { needsCourse, guessCourse, coursesFor, productByName, passlessPayment } from '../lib/dropin';
@@ -154,7 +161,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
             const same = samePhoneMembers(s.members, p.payerPhone);
             return (
               <button className="row" key={p.id} onClick={() => openItem(p)}>
-                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : p.dropIn ? (p.payerName && noCourse(p) ? '원데이 · 수업을 골라야 강사 정산에 들어가요' : '원데이 · 이름만 적으면 돼요 (회원이면 회원 선택)') : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
+                <div className="main"><div className="t">{name(p.memberId) ?? (p.payerName || '이름 없음')}</div><ProdName name={p.productName} /><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.review ? REVIEW_TEXT[p.review] : noPass(p) ? `${name(p.memberId) ?? '회원'} 연결됨 · 수강권 상품과 이름이 안 맞아 수강권 없음` : p.dropIn ? (p.payerName && noCourse(p) ? '원데이 · 수업을 골라야 강사 정산에 들어가요' : '원데이 · 이름만 적으면 돼요 (회원이면 회원 선택)') : <>{p.payerPhone ? fmtPhone(p.payerPhone) : '번호 없음'}{p.payerPhone && (same.length === 0 ? ' · 일치 회원 없음' : same.length > 1 ? ` · 같은 번호 회원 ${same.length}명` : '')}</>}</div></div>
                 <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}<span className="chip amber">{p.review === 'REFUND_UNMATCHED' ? '원 결제 고르기' : p.review === 'REFUND_SUGGESTED' ? '환불 확인' : p.review ? '환불 확인' : noPass(p) ? '상품 미확인' : p.dropIn ? (p.payerName && noCourse(p) ? '수업 고르기' : '이름 적기') : '회원 연결'}</span></div>
               </button>
             );
@@ -166,7 +173,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
         {shown.length === 0 ? <div className="empty"><b>{dayjs(month + '-01').format('M월')} 결제가 없어요</b></div> : <div className="list">
           {shown.map((p) => (
             <div className="row" key={p.id} style={p.status === 'CANCELLED' ? { opacity: .45 } : undefined}>
-              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'} · {p.productName}</div><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : METHOD_TEXT[p.method ?? ''] ?? '직접 입력'}{p.discountPct ? ` · 할인 ${p.discountPct}%` : ''}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}{p.review && ` · ${REVIEW_TEXT[p.review]}`}</div></div>
+              <div className="main"><div className="t">{name(p.memberId) ?? p.payerName ?? '이름 없음'}</div><ProdName name={p.productName} /><div className="d">{dayjs(p.paidAt).format('M/D HH:mm')} · {p.source === 'KIOSK' ? '키오스크' : METHOD_TEXT[p.method ?? ''] ?? '직접 입력'}{p.discountPct ? ` · 할인 ${p.discountPct}%` : ''}{p.externalId && ` · ${p.externalId}`}{p.status === 'CANCELLED' && ' · 취소'}{p.review && ` · ${REVIEW_TEXT[p.review]}`}</div></div>
               <div className="right">{p.amount !== undefined && <b className="num">{won(p.amount)}</b>}
                 {p.review && <button className="chip amber" onClick={() => setReview(p)}>확인</button>}
                 {canEdit(p) && <button className="chip" onClick={() => setEditing(p)}>수정</button>}
@@ -351,7 +358,7 @@ function ReviewSheet({ p, busy, run, onClose, go, onCancel }: { p: Payment; busy
               const r = await s.linkRefund(p.id, x.id);
               if (r.ok) done('원 결제를 취소했어요'); else toast(refundFail(r));
             }); }}>
-              <div className="main"><div className="t">{name(x.memberId) ?? x.payerName ?? '이름 없음'} · {x.productName}</div><div className="d">{dayjs(x.paidAt).format('M/D HH:mm')}{x.externalId && ` · ${x.externalId}`}{x.payerPhone && ` · ${fmtPhone(x.payerPhone)}`}</div></div>
+              <div className="main"><div className="t">{name(x.memberId) ?? x.payerName ?? '이름 없음'}</div><ProdName name={x.productName} /><div className="d">{dayjs(x.paidAt).format('M/D HH:mm')}{x.externalId && ` · ${x.externalId}`}{x.payerPhone && ` · ${fmtPhone(x.payerPhone)}`}</div></div>
               <div className="right">{x.amount !== undefined && <b className="num">{won(x.amount)}</b>}<span className="chip">이 결제</span></div>
             </button>
           ))}

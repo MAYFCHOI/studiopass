@@ -86,6 +86,8 @@ h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; margin: 28px 0 
 .row .main { flex: 1; min-width: 0; }
 .row .t { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .d { color: var(--mute); font-size: 13px; margin-top: 2px; }
+.row .prod { font-size: 13.5px; font-weight: 600; color: var(--ink-2); margin-top: 2px; overflow-wrap: anywhere; line-height: 1.35; }
+.row .prod.multi span { display: block; }
 .row .right { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 14px; }
 .row .right b { display: block; color: var(--ink); font-size: 18px; letter-spacing: -0.02em; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-weight: 700; font-size: 15px; flex: none; }
