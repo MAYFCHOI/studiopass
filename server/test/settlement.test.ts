@@ -58,11 +58,13 @@ it('a drop-in product without a class counts for the class picked on the payment
   const pay = db.prepare("insert into payments(id,source,external_id,paid_at,amount,payer_phone,product_name,status,created_at,drop_in,course_id,payer_name) values(?,'KIOSK',?,?,30000,'','WARM UP TRAINING','APPROVED','x',1,?,?)");
   pay.run('w1', 'e1', '2026-10-19T09:00:00Z', c.id, '손님1');
   pay.run('w2', 'e2', '2026-10-19T09:05:00Z', c.id, '손님2');
-  pay.run('w3', 'e3', '2026-10-20T09:00:00Z', null, '손님3'); // 수업 안 고름 → 아무 강사도 아님
+  pay.run('w3', 'e3', '2026-10-20T09:00:00Z', null, '손님3'); // 수업 안 고름 → 그 날(화) 웜업 띠 수업으로 간다
   const line = settle(db, '2026-10').find((l) => l.instructorId === ins)!;
   expect(line).toMatchObject({ sessions: 1, heads: 2, dropIns: 2, revenue: 60000, instructorPay: 40000 });
   expect(line.courses[0].days[0].people.map((p) => p.name)).toEqual(['손님1', '손님2']);
-  expect(settle(db, '2026-10').reduce((n, l) => n + l.dropIns, 0)).toBe(2);
+  const all = settle(db, '2026-10');
+  expect(all.reduce((n, l) => n + l.dropIns, 0)).toBe(3);
+  expect(all.flatMap((l) => l.courses).find((x) => x.days.some((d) => d.people.some((p) => p.name === '손님3')))?.courseId).toBe('c_hub_2_1820');
 });
 it('a drop-in paid a day early counts on the class day, not as a second session', () => {
   const { db, member, pass, course } = makeDb();

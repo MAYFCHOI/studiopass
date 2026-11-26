@@ -140,3 +140,55 @@ it('extra pay (warm-up) adds to the instructor without a course, owner only', as
   const after = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === ins);
   expect(after.courses.find((c: any) => c.extra)).toMatchObject({ sessions: 1, instructorPay: 40000 });
 });
+
+// 2026-11-26: 웜업은 출석 쿠폰이 되지 않고, 결제한 날 웜업 수업(대강이면 대강 강사)으로 정산된다
+it('warm-up in a combo makes no pass and settles to that day warm-up class', async () => {
+  const wd = 3; // 수요일 2026-11-25
+  // 시드 시간표의 수요일 18:20 웜업 띠 수업
+  const warmId = (db.prepare("select id from courses where weekday=? and note='WarmUp Training'").get(wd) as { id: string }).id;
+  db.prepare("update courses set settlement_type='PER_SESSION', per_session_fee=50000 where id=?").run(warmId);
+  const owner = (db.prepare('select instructor_id from courses where id=?').get(warmId) as { instructor_id: string }).instructor_id;
+  const sub = (db.prepare('select id from instructors where id<>? limit 1').get(owner) as { id: string }).id;
+  db.prepare("insert or ignore into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_warm','WARM UP TRAINING',null,'COUNT',1,6,30000,1)").run();
+  const warmProd = (db.prepare("select id from products where name='WARM UP TRAINING'").get() as { id: string }).id;
+  const reg = db.prepare("select name, price from products where drop_in=0 and pass_kind='COUNT' and price>0 limit 1").get() as { name: string; price: number };
+  const m = await member();
+  // 키오스크 묶음 결제(웜업 조각 이름에 공백이 여러 개)를 회원에 연결
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 'w1', paidAt: '2026-11-25T09:15:00Z', amount: reg.price + 30000, productName: `${reg.name} + WARM UP     TRAINING`, payerPhone: '01012340000' }] });
+  const pay = db.prepare("select id from payments where external_id='w1'").get() as { id: string };
+  await post(`/payments/${pay.id}/assign`, { memberId: m });
+  const passes = db.prepare('select product_id, price from passes where payment_id=?').all(pay.id) as { product_id: string; price: number }[];
+  expect(passes).toHaveLength(1);
+  expect(passes[0].product_id).not.toBe(warmProd);
+  expect(passes[0].price).toBe(reg.price);
+  // 웜업만 결제한 회원도 수강권 없음
+  const single = await (await post('/payments', { amount: 30000, productName: 'WARM UP TRAINING', memberId: m, method: 'TRANSFER', paidAt: '2026-11-25T09:00:00Z' })).json();
+  expect(db.prepare('select count(*) n from passes where payment_id=?').get(single.id)).toEqual({ n: 0 });
+  // 정산: 두 웜업 몫이 수요일 웜업 수업으로, 1타임 5만
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === owner);
+  const warm = line.courses.find((c: any) => c.courseId === warmId);
+  expect(warm).toMatchObject({ sessions: 1, heads: 2, instructorPay: 50000 });
+  // 다른 강사가 한 날은 대강으로: 그 강사에게 간다
+  expect((await post('/substitutions', { courseId: warmId, date: '2026-11-25', instructorId: sub })).status).toBe(200);
+  const after = await (await req('/settlement?month=2026-11', {}, o)).json();
+  expect(after.find((l: any) => l.instructorId === owner).courses.find((c: any) => c.courseId === warmId)).toBeUndefined();
+  expect(after.find((l: any) => l.instructorId === sub).courses.find((c: any) => c.courseId === warmId && c.sub)).toMatchObject({ heads: 2, instructorPay: 50000 });
+});
+
+it('repairs old warm-up passes: unused ones go, prices of the rest follow the split', async () => {
+  db.prepare("insert or ignore into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_warm','WARM UP TRAINING',null,'COUNT',1,6,30000,1)").run();
+  const warmProd = (db.prepare("select id from products where name='WARM UP TRAINING'").get() as { id: string }).id;
+  const reg = db.prepare("select id, name, price from products where drop_in=0 and pass_kind='COUNT' and price>0 limit 1").get() as { id: string; name: string; price: number };
+  const m = await member();
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 'w2', paidAt: '2026-11-25T09:15:00Z', amount: reg.price + 30000, productName: `${reg.name} + WARM UP TRAINING` }] });
+  const pay = db.prepare("select id from payments where external_id='w2'").get() as { id: string };
+  // 예전 방식으로 만든 것처럼: 웜업 수강권이 결제의 첫 수강권
+  const { repairPasslessPasses } = await import('../src/domain/payments.js');
+  db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('old_w',?,?,null,'COUNT',1,1,'2026-11-25','2026-12-01',?,30000,'x')").run(m, warmProd, pay.id);
+  db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('old_r',?,?,null,'COUNT',1,1,'2026-11-25','2026-12-01',?,1,'x')").run(m, reg.id, pay.id);
+  db.prepare("update payments set member_id=?, pass_id='old_w' where id=?").run(m, pay.id);
+  expect(repairPasslessPasses(db)).toEqual({ removed: 1, kept: 0 });
+  expect(db.prepare('select pass_id from payments where id=?').get(pay.id)).toEqual({ pass_id: 'old_r' });
+  expect(db.prepare("select price from passes where id='old_r'").get()).toEqual({ price: reg.price });
+  expect(repairPasslessPasses(db)).toEqual({ removed: 0, kept: 0 });
+});

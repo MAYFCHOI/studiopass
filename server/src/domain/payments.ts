@@ -43,6 +43,22 @@ export function comboAmounts(amount: number, parts: (ProductRow | undefined)[]) 
   const rest = unknown ? Math.max(0, amount - known) / unknown : 0;
   return splitAmount(amount, parts.map((x) => (x ? x.price : rest)));
 }
+/** 수강권을 만들지 않는 상품: 수업이 정해지지 않은 원데이(웜업처럼 요일마다 강사가 다름). 회원에게 연결돼도 출석 쿠폰이 되지 않고 원데이로 정산된다. */
+export const passless = (p: Pick<ProductRow, 'drop_in' | 'course_id'>) => !!p.drop_in && !p.course_id;
+/** 결제로 만들 수강권: 묶음이면 정가 비율로 나눈 몫 중 수강권을 만드는 상품만(웜업 몫은 원데이 정산으로 간다). 찾는 상품이 없으면 null. */
+function passPlan(db: Db, name: string, amount: number): { prod: ProductRow; price: number }[] | null {
+  const many = splitProducts(db, name);
+  if (many) { const prices = splitAmount(amount, many.map((x) => x.price)); return many.map((prod, i) => ({ prod, price: prices[i] })).filter((x) => !passless(x.prod)); }
+  const prod = findProduct(db, name); if (!prod) return null;
+  return passless(prod) ? [] : [{ prod, price: amount }];
+}
+/** 상품에 수업이 없는 원데이(웜업)의 수업: 결제한 날(KST) 요일의 수업 중 이름이나 띠 문구가 상품 이름과 같은 것(WARM UP TRAINING ↔ WarmUp Training). */
+export function namedCourse(db: Db, productName: string, paidAt: string): string | null {
+  const n = squash(productName); if (!n) return null;
+  const wd = new Date(kstDate(new Date(paidAt)) + 'T00:00:00Z').getUTCDay();
+  const rows = db.prepare('select id, name, note from courses where weekday=? and active=1 and deleted_at is null order by start_time').all(wd) as { id: string; name: string; note: string | null }[];
+  return rows.find((c) => squash(c.note ?? '') === n || squash(c.name) === n)?.id ?? null;
+}
 /** 결제액을 상품 정가 비율로 나눈다(나머지는 마지막 상품). 정가 합이 0이면 똑같이 나눈다. */
 export function splitAmount(amount: number, prices: number[]) {
   const sum = prices.reduce((a, b) => a + b, 0);
@@ -59,13 +75,9 @@ const insertPass = (db: Db, paymentId: string, memberId: string, prod: ProductRo
 /** 수강권을 만들고 첫 수강권 id 를 돌려준다(결제의 pass_id). 묶음 결제면 상품마다 하나씩 만든다(passes.payment_id 로 묶인다). */
 function createPass(db: Db, paymentId: string, memberId: string, productName: string, paidAt: string, amount: number) {
   const from = kstDate(new Date(paidAt));
-  const many = splitProducts(db, productName);
-  if (many) {
-    const prices = splitAmount(amount, many.map((x) => x.price));
-    return many.map((prod, i) => insertPass(db, paymentId, memberId, prod, from, prices[i]))[0];
-  }
-  const prod = findProduct(db, productName); if (!prod) return null;
-  return insertPass(db, paymentId, memberId, prod, from, amount);
+  const plan = passPlan(db, productName, amount);
+  if (!plan?.length) return null;
+  return plan.map((x) => insertPass(db, paymentId, memberId, x.prod, from, x.price))[0];
 }
 /** 결제로 만든 수강권 전부(묶음 결제면 여러 개). */
 const paymentPasses = (db: Db, paymentId: string, passId: string) =>
@@ -278,9 +290,12 @@ export function editPayment(db: Db, paymentId: string, e: PaymentEdit, staffId: 
       db.prepare('update payments set pass_id=? where id=?').run(passId, p.id);
     } else if (passId && amount !== p.amount) {
       const ids = paymentPasses(db, p.id, passId);
-      const many = ids.length > 1 ? splitProducts(db, product) : null;
-      const prices = many && many.length === ids.length ? splitAmount(amount, many.map((x) => x.price)) : null;
-      ids.forEach((id, i) => db.prepare('update passes set price=? where id=?').run(prices ? prices[i] : ids.length === 1 ? amount : Math.round(amount / ids.length), id));
+      const plan = passPlan(db, product, amount) ?? [];
+      ids.forEach((id) => {
+        const pid = (db.prepare('select product_id from passes where id=?').get(id) as { product_id: string } | undefined)?.product_id;
+        const hit = plan.find((x) => x.prod.id === pid);
+        db.prepare('update passes set price=? where id=?').run(hit ? hit.price : ids.length === 1 ? amount : Math.round(amount / ids.length), id);
+      });
     }
     audit(db, staffId, 'payment.edit', 'payment', p.id, { from: { product: p.product_name, amount: p.amount, paidAt: p.paid_at, method: p.method, courseId: p.course_id }, to: { product, amount, paidAt, method, courseId }, remade: remake && !!p.member_id });
     return { ok: true, passId };
@@ -332,17 +347,42 @@ export function repairCombinedPayments(db: Db) {
     const rows = db.prepare("select id, pass_id, member_id, product_name, amount from payments where status='APPROVED' and pass_id is not null and product_name like '%+%'").all() as { id: string; pass_id: string; member_id: string; product_name: string; amount: number }[];
     let fixed = 0;
     for (const p of rows) {
-      const many = splitProducts(db, p.product_name);
-      if (!many || paymentPasses(db, p.id, p.pass_id).length > 1) continue;
+      const plan = splitProducts(db, p.product_name) ? passPlan(db, p.product_name, p.amount) : null;
+      if (!plan || plan.length < 2 || paymentPasses(db, p.id, p.pass_id).length > 1) continue;
       const have = db.prepare('select product_id, valid_from from passes where id=?').get(p.pass_id) as { product_id: string; valid_from: string };
-      const at = many.findIndex((x) => x.id === have.product_id);
+      const at = plan.findIndex((x) => x.prod.id === have.product_id);
       if (at < 0) continue;
-      const prices = splitAmount(p.amount, many.map((x) => x.price));
-      db.prepare('update passes set price=? where id=?').run(prices[at], p.pass_id);
-      const made = many.flatMap((prod, i) => (i === at ? [] : [insertPass(db, p.id, p.member_id, prod, have.valid_from, prices[i])]));
-      audit(db, null, 'payment.split', 'payment', p.id, { kept: p.pass_id, price: prices[at], made });
+      db.prepare('update passes set price=? where id=?').run(plan[at].price, p.pass_id);
+      const made = plan.flatMap((x, i) => (i === at ? [] : [insertPass(db, p.id, p.member_id, x.prod, have.valid_from, x.price)]));
+      audit(db, null, 'payment.split', 'payment', p.id, { kept: p.pass_id, price: plan[at].price, made });
       fixed++;
     }
     return fixed;
+  })();
+}
+
+/**
+ * 예전에 웜업처럼 수업 없는 원데이 상품으로도 수강권(출석 쿠폰)을 만들던 것을 고친다. 서버 시작 때 돈다(두 번 돌아도 그대로).
+ * 출석에 안 쓴 그 수강권은 지우고, 결제에 남는 수강권 가격을 정가 비율 몫으로 다시 맞춘다. 출석에 쓴 것은 그대로 두고 센다.
+ */
+export function repairPasslessPasses(db: Db) {
+  return db.transaction(() => {
+    const rows = db.prepare(`select ps.id, ps.payment_id, ps.product_id from passes ps join products pr on pr.id=ps.product_id
+      where pr.drop_in=1 and pr.course_id is null and ps.payment_id is not null`).all() as { id: string; payment_id: string; product_id: string }[];
+    let removed = 0, kept = 0;
+    for (const r of rows) {
+      if ((db.prepare('select count(*) n from attendances where pass_id=? and cancelled_at is null').get(r.id) as { n: number }).n > 0) { kept++; continue; }
+      const p = db.prepare('select id, pass_id, product_name, amount from payments where id=?').get(r.payment_id) as { id: string; pass_id: string | null; product_name: string; amount: number } | undefined;
+      db.prepare('delete from attendances where pass_id=?').run(r.id);
+      db.prepare('delete from passes where id=?').run(r.id);
+      removed++;
+      if (!p) continue;
+      const rest = (db.prepare('select id, product_id from passes where payment_id=?').all(p.id) as { id: string; product_id: string }[]);
+      if (p.pass_id === r.id) db.prepare('update payments set pass_id=? where id=?').run(rest[0]?.id ?? null, p.id);
+      const plan = passPlan(db, p.product_name, p.amount) ?? [];
+      for (const x of rest) { const hit = plan.find((y) => y.prod.id === x.product_id); if (hit) db.prepare('update passes set price=? where id=?').run(hit.price, x.id); }
+      audit(db, null, 'payment.passless', 'payment', p.id, { removedPass: r.id });
+    }
+    return { removed, kept };
   })();
 }

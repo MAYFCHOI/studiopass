@@ -10,7 +10,7 @@ import { Sheet } from '../components/Sheet';
 import { Icon } from '../components/Icon';
 import { toast } from '../components/Toast';
 import type { Payment, ImportResult, AssignResult, PayMethod, Product, State, Substitution } from '../types';
-import { needsCourse, guessCourse, coursesFor, productByName } from '../lib/dropin';
+import { needsCourse, guessCourse, coursesFor, productByName, passlessPayment } from '../lib/dropin';
 import { courseTitle } from '../lib/labels';
 
 const FIELDS: { key: keyof Mapping; label: string; need?: boolean }[] = [
@@ -93,7 +93,7 @@ export default function Payments({ go }: { go: (t: Tab, arg?: string) => void })
   });
 
   /** 회원은 연결됐는데 수강권이 없는 결제: 키오스크 상품명이 어떤 수강권 상품과도 맞지 않았다. */
-  const noPass = (p: Payment) => p.status === 'APPROVED' && !!p.memberId && !p.passId;
+  const noPass = (p: Payment) => p.status === 'APPROVED' && !!p.memberId && !p.passId && !passlessPayment(s, p.productName);
   /** 원데이 결제: 회원 연결 없이 이름만 적으면 끝. 회원에게 연결했다면 보통 결제처럼 수강권이 있어야 한다. */
   /** 이름은 적었어도 수업이 없어 강사 정산에 안 들어가는 원데이(웜업 등) */
   const noCourse = (p: Payment) => needsCourse(s, p) && !p.courseId;
@@ -391,6 +391,7 @@ function ManualPay({ onClose }: { onClose: () => void }) {
   const pickCourse = drop && !member && !!prod && !prod.courseId;
   const dayCourses = pickCourse ? coursesFor(s, prod!.name, at) : [];
   const course = courseId || (pickCourse ? guessCourse(s, prod!.name, at)?.id ?? '' : '');
+  const taught = useTaughtBy(s.me?.role !== 'DESK' && pickCourse ? course : '', at);
   const who = member?.name ?? guest.trim();
   const ready = !!prod && total > 0 && (!!member || (drop && !!guest.trim())) && (!pickCourse || !!course);
   const priceOf = (p: Product | undefined, d: boolean) => (p?.price ? String(d ? Math.round((p.price * (100 - pct)) / 100) : p.price) : '');
@@ -399,6 +400,7 @@ function ManualPay({ onClose }: { onClose: () => void }) {
   const submit = () => run(async () => {
     const paidAt = day === today ? undefined : dayjs(`${day}T12:00:00`).toISOString();
     await s.addPayment({ memberId: member?.id, productName: prod!.name, amount: total, payerName: who, payerPhone: member?.phone, paidAt, method, courseId: pickCourse ? course : undefined, discountPct: discount ? pct : undefined }, { idempotencyKey: key });
+    if (!(await taught.save())) return;
     toast(member && !drop ? `${who} 결제 등록, 수강권이 생겼어요` : `${who} 님 원데이 결제 등록`); onClose();
   });
   const regular = products.filter((p) => !p.dropIn); const drops = products.filter((p) => p.dropIn);
@@ -413,6 +415,7 @@ function ManualPay({ onClose }: { onClose: () => void }) {
       <div className="field"><label>금액</label><input className="input" inputMode="numeric" placeholder="원" value={amount} onChange={(e) => setAmount(e.target.value)} />
         <div className="seg" style={{ marginTop: 8 }}><button aria-pressed={!discount} onClick={() => { if (discount) toggleDiscount(); }}>정가</button><button aria-pressed={discount} onClick={() => { if (!discount) toggleDiscount(); }}>강사 할인 {pct}%</button></div></div>
       {pickCourse && <div className="field"><label>어느 수업이었나요? (이 수업 강사에게 정산돼요)</label><select className="input" value={course} onChange={(e) => setCourseId(e.target.value)}><option value="">고르기</option>{dayCourses.map((c) => <option key={c.id} value={c.id}>{c.startTime} {courseTitle(s, c)}{c.note ? ` · ${c.note}` : ''}</option>)}</select></div>}
+      {pickCourse && <TaughtBySelect t={taught} />}
       {drop && !member && <div className="field"><label>손님 이름</label><input className="input" placeholder="이름만 적으면 돼요" value={guest} onChange={(e) => setGuest(e.target.value)} /></div>}
       <div className="field"><label>{drop ? '회원이면 회원 고르기 (선택)' : '회원'}</label>
         {member

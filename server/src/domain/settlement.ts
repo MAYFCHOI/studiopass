@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { kstDate } from '../util.js';
-import { findProduct, comboParts, comboAmounts } from './payments.js';
+import { findProduct, comboParts, comboAmounts, passless, namedCourse } from './payments.js';
 export type Terms = { type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number };
 export type Person = { name: string; value: number; kind: 'COUNT' | 'PERIOD' | 'DROP_IN'; bonus?: number; paidOn?: string };
 export type DayLine = { date: string; heads: number; revenue: number; people: Person[]; fee?: number };
@@ -9,28 +9,35 @@ export type CourseLine = Terms & { courseId: string; name: string; weekday: numb
 export type SettlementLine = { instructorId: string; name: string; type: 'RATIO' | 'PER_SESSION'; ratioInstructor: number; perSessionFee: number; sessions: number; heads: number; revenue: number; instructorPay: number; bonus: number; academyPay: number; proTickets: number; dropIns: number; courses: CourseLine[] };
 type DropIn = { instructor_id: string | null; course_id: string | null; paid_at: string; amount: number; payer_name: string | null };
 /**
- * 그 달(KST)의 원데이 결제: 회원 연결 없이 결제만 있는 건. 결제에 고른 수업, 없으면 상품에 묶인 수업의 강사 몫으로 센다(둘 다 없으면 어느 강사에게도 가지 않는다).
+ * 그 달(KST)의 원데이 결제: 수강권 없이 결제만 있는 건과, 묶음 결제의 웜업처럼 수강권을 만들지 않는 조각. 결제에 고른 수업, 없으면 상품에 묶인 수업,
+ * 그것도 없으면 결제한 날 이름이 같은 수업(웜업)의 강사 몫으로 센다(모두 없으면 어느 강사에게도 가지 않는다).
  * 회원에게 연결돼 수강권이 생긴 원데이 결제는 출석으로 세므로 여기서 빼서 두 번 세지 않는다.
  */
 function dropIns(db: Db, month: string): DropIn[] {
   const [y, m] = month.split('-').map(Number);
   const from = new Date(Date.UTC(y, m - 1, 1) - 9 * 3600000).toISOString();
   const to = new Date(Date.UTC(y, m, 1) - 9 * 3600000).toISOString();
-  const rows = db.prepare(`select p.product_name, p.course_id, p.paid_at, p.amount, p.payer_name from payments p
-    where p.drop_in=1 and p.status='APPROVED' and p.pass_id is null and p.paid_at >= ? and p.paid_at < ?`).all(from, to) as any[];
+  const rows = db.prepare(`select p.product_name, p.course_id, p.paid_at, p.amount, coalesce(p.payer_name, mm.name) payer_name, p.drop_in, p.pass_id from payments p left join members mm on mm.id=p.member_id
+    where p.status='APPROVED' and p.paid_at >= ? and p.paid_at < ? and ((p.drop_in=1 and p.pass_id is null) or p.product_name like '%+%')`).all(from, to) as any[];
   const insOf = db.prepare('select instructor_id from courses where id=?');
   const byName = db.prepare('select course_id from products where name=?'); // 쉬는 상품도(지난 달 정산)
+  const insFor = (id: string | null) => (id ? (insOf.get(id) as { instructor_id: string } | undefined)?.instructor_id ?? null : null);
   return rows.flatMap((r) => {
-    const insFor = (id: string | null) => (id ? (insOf.get(id) as { instructor_id: string } | undefined)?.instructor_id ?? null : null);
-    // 묶음 결제("A + B")는 조각마다 나눈다: 상품에 묶인 수업이 먼저, 없으면(웜업, 못 찾은 상품) 결제에 고른 수업.
+    const whole = !!r.drop_in && !r.pass_id; // 수강권이 없는 원데이 결제(전부 원데이로 센다)
+    // 묶음 결제("A + B")는 조각마다 나눈다: 상품에 묶인 수업이 먼저, 없으면 결제에 고른 수업, 그것도 없으면 그 날 이름이 같은 수업(웜업).
+    // 수강권을 만든 묶음 결제는 웜업처럼 수강권이 안 생기는 조각만 원데이로 센다.
     const parts = comboParts(db, r.product_name);
     if (parts) {
       const amounts = comboAmounts(r.amount, parts);
-      return parts.map((x, i) => { const courseId = x?.course_id ?? r.course_id ?? null; return { instructor_id: insFor(courseId), course_id: courseId, paid_at: r.paid_at, amount: amounts[i], payer_name: r.payer_name }; });
+      return parts.flatMap((x, i) => {
+        if (!whole && !(x && passless(x))) return [];
+        const courseId = x?.course_id ?? r.course_id ?? (x ? namedCourse(db, x.name, r.paid_at) : null);
+        return [{ instructor_id: insFor(courseId), course_id: courseId, paid_at: r.paid_at, amount: amounts[i], payer_name: r.payer_name }];
+      });
     }
-    const courseId = r.course_id ?? (byName.get(r.product_name) as { course_id: string | null } | undefined)?.course_id ?? findProduct(db, r.product_name)?.course_id ?? null;
-    const c = courseId ? (insOf.get(courseId) as { instructor_id: string } | undefined) : undefined;
-    return { instructor_id: c?.instructor_id ?? null, course_id: courseId, paid_at: r.paid_at, amount: r.amount, payer_name: r.payer_name };
+    if (!whole) return [];
+    const courseId = r.course_id ?? (byName.get(r.product_name) as { course_id: string | null } | undefined)?.course_id ?? findProduct(db, r.product_name)?.course_id ?? namedCourse(db, r.product_name, r.paid_at);
+    return [{ instructor_id: insFor(courseId), course_id: courseId, paid_at: r.paid_at, amount: r.amount, payer_name: r.payer_name }];
   });
 }
 /**
