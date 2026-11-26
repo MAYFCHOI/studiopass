@@ -187,13 +187,34 @@ it('repairs old warm-up passes: unused ones go, prices of the rest follow the sp
   db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('old_w',?,?,null,'COUNT',1,1,'2026-11-25','2026-12-01',?,30000,'x')").run(m, warmProd, pay.id);
   db.prepare("insert into passes(id,member_id,product_id,course_id,kind,total_count,remaining,valid_from,valid_to,payment_id,price,created_at) values('old_r',?,?,null,'COUNT',1,1,'2026-11-25','2026-12-01',?,1,'x')").run(m, reg.id, pay.id);
   db.prepare("update payments set member_id=?, pass_id='old_w' where id=?").run(m, pay.id);
-  expect(repairPasslessPasses(db)).toEqual({ removed: 1, kept: 0 });
+  expect(repairPasslessPasses(db)).toEqual({ removed: 1, kept: 0, repriced: 0 });
   expect(db.prepare('select pass_id from payments where id=?').get(pay.id)).toEqual({ pass_id: 'old_r' });
   expect(db.prepare("select price from passes where id='old_r'").get()).toEqual({ price: reg.price });
-  expect(repairPasslessPasses(db)).toEqual({ removed: 0, kept: 0 });
+  expect(repairPasslessPasses(db)).toEqual({ removed: 0, kept: 0, repriced: 0 });
 });
 
 // 2026-11-26: 웜업 인원 인센티브(11명부터 1명당 15,000원)
+it('kiosk price differs from list price: warm-up part keeps 30,000, the class pass takes the rest', async () => {
+  db.prepare("insert or ignore into products(id,name,course_id,pass_kind,count,period_days,price,drop_in) values('p_warm','WARM UP TRAINING',null,'COUNT',1,6,30000,1)").run();
+  const reg = db.prepare("select id, name, price from products where drop_in=0 and pass_kind='COUNT' and price>0 limit 1").get() as { id: string; name: string; price: number };
+  const owner = (db.prepare("select instructor_id from courses where note='WarmUp Training' and weekday=3").get() as { instructor_id: string }).instructor_id;
+  const m = await member();
+  // 등록 정가보다 4만원 비싸게 팔린 묶음(예: SPECIAL 15만 + 웜업 3만 = 18만, 등록 정가 11만)
+  const amount = reg.price + 40000 + 30000;
+  await post('/payments/import', { rows: [{ source: 'KIOSK', externalId: 'w3', paidAt: '2026-11-25T09:15:00Z', amount, productName: `${reg.name.replace(' ', '    ')} + WARM UP     TRAINING` }] });
+  const pay = db.prepare("select id from payments where external_id='w3'").get() as { id: string };
+  await post(`/payments/${pay.id}/assign`, { memberId: m });
+  expect(db.prepare('select price from passes where payment_id=?').all(pay.id)).toEqual([{ price: reg.price + 40000 }]);
+  const line = (await (await req('/settlement?month=2026-11', {}, o)).json()).find((l: any) => l.instructorId === owner);
+  const warm = line.courses.find((c: any) => c.days.some((d: any) => d.people.some((x: any) => x.kind === 'DROP_IN')) && c.weekday === 3 && c.startTime === '18:20');
+  expect(warm.days.find((d: any) => d.date === '2026-11-25').people.map((x: any) => x.value)).toEqual([30000]);
+  // 예전 비율 분할로 만든 수강권은 시작할 때 고친다
+  const { repairPasslessPasses } = await import('../src/domain/payments.js');
+  db.prepare('update passes set price=1 where payment_id=?').run(pay.id);
+  expect(repairPasslessPasses(db)).toMatchObject({ repriced: 1 });
+  expect(db.prepare('select price from passes where payment_id=?').all(pay.id)).toEqual([{ price: reg.price + 40000 }]);
+});
+
 it('head bonus adds per head from the N-th person on a per-session class', async () => {
   const warmId = (db.prepare("select id from courses where weekday=3 and note='WarmUp Training'").get() as { id: string }).id;
   const cur = await (await req('/bootstrap', {}, o)).json();

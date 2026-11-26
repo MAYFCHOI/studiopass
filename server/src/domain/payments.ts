@@ -38,6 +38,17 @@ export function isDropIn(db: Db, name: string) {
 }
 /** 묶음 결제 금액 나누기: 찾은 조각은 정가, 못 찾은 조각은 남는 돈을 똑같이 나눈 값을 기준으로 비율을 낸다. */
 export function comboAmounts(amount: number, parts: (ProductRow | undefined)[]) {
+  // 웜업처럼 수강권이 안 생기는 조각은 정가 그대로 떼고(3만원), 남는 돈을 나머지 조각에 나눈다.
+  // 키오스크 가격과 등록된 정가가 달라도(SPECIAL 15만원 / 등록 11만원) 웜업 몫이 부풀지 않는다.
+  const fixed = parts.map((x) => (x && passless(x) && x.price > 0 ? x.price : null));
+  const fixedSum = fixed.reduce<number>((n, x) => n + (x ?? 0), 0);
+  const others = parts.filter((_, i) => fixed[i] === null);
+  if (!others.length || fixedSum > amount) return ratioAmounts(amount, parts);
+  const rest = ratioAmounts(amount - fixedSum, others);
+  let k = 0;
+  return fixed.map((x) => x ?? rest[k++]);
+}
+function ratioAmounts(amount: number, parts: (ProductRow | undefined)[]) {
   const known = parts.reduce((n, x) => n + (x?.price ?? 0), 0);
   const unknown = parts.filter((x) => !x).length;
   const rest = unknown ? Math.max(0, amount - known) / unknown : 0;
@@ -48,7 +59,7 @@ export const passless = (p: Pick<ProductRow, 'drop_in' | 'course_id'>) => !!p.dr
 /** 결제로 만들 수강권: 묶음이면 정가 비율로 나눈 몫 중 수강권을 만드는 상품만(웜업 몫은 원데이 정산으로 간다). 찾는 상품이 없으면 null. */
 function passPlan(db: Db, name: string, amount: number): { prod: ProductRow; price: number }[] | null {
   const many = splitProducts(db, name);
-  if (many) { const prices = splitAmount(amount, many.map((x) => x.price)); return many.map((prod, i) => ({ prod, price: prices[i] })).filter((x) => !passless(x.prod)); }
+  if (many) { const prices = comboAmounts(amount, many); return many.map((prod, i) => ({ prod, price: prices[i] })).filter((x) => !passless(x.prod)); }
   const prod = findProduct(db, name); if (!prod) return null;
   return passless(prod) ? [] : [{ prod, price: amount }];
 }
@@ -383,6 +394,21 @@ export function repairPasslessPasses(db: Db) {
       for (const x of rest) { const hit = plan.find((y) => y.prod.id === x.product_id); if (hit) db.prepare('update passes set price=? where id=?').run(hit.price, x.id); }
       audit(db, null, 'payment.passless', 'payment', p.id, { removedPass: r.id });
     }
-    return { removed, kept };
+    // 웜업 몫을 정가(3만원)로 떼도록 바뀌기 전에 만든 묶음 수강권 값 고치기
+    let repriced = 0;
+    const combos = db.prepare(`select p.id, p.product_name, p.amount from payments p where p.product_name like '%+%' and exists(select 1 from passes ps where ps.payment_id=p.id)`).all() as { id: string; product_name: string; amount: number }[];
+    for (const p of combos) {
+      const many = splitProducts(db, p.product_name);
+      if (!many?.some(passless)) continue;
+      const plan = passPlan(db, p.product_name, p.amount) ?? [];
+      for (const x of db.prepare('select id, product_id, price from passes where payment_id=?').all(p.id) as { id: string; product_id: string; price: number }[]) {
+        const hit = plan.find((y) => y.prod.id === x.product_id);
+        if (!hit || hit.price === x.price) continue;
+        db.prepare('update passes set price=? where id=?').run(hit.price, x.id);
+        audit(db, null, 'payment.reprice', 'payment', p.id, { pass: x.id, from: x.price, to: hit.price });
+        repriced++;
+      }
+    }
+    return { removed, kept, repriced };
   })();
 }
